@@ -4,17 +4,18 @@ import subprocess
 import sys
 import os
 import tempfile
+import pytest
 
 PYTHON = '/home/userland/code/zork-bf/venv/bin/python'
 TRANSPILE = '/home/userland/code/zork-bf/transpile.py'
 BF_INTERP = '/home/userland/code/zork-bf/bf.py'
 
-def run_bf(bf_code, input_data=''):
+def run_bf(bf_code, input_data='', timeout=120):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.bf', delete=False) as f:
         f.write(bf_code)
         f.flush()
         result = subprocess.run([PYTHON, BF_INTERP, f.name, input_data], 
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, timeout=timeout)
         os.unlink(f.name)
         return result.stdout
 
@@ -52,6 +53,40 @@ def test_print_zork():
     bf = transpile('print("Zork")')
     output = run_bf(bf)
     assert output == "Zork", f"Expected 'Zork', got '{output}'"
+
+def test_var_assign():
+    """Test: x = 3 produces no output (just stores value)"""
+    bf = transpile('x = 3')
+    output = run_bf(bf)
+    assert output == "", f"Expected '', got '{output}'"
+
+def test_print_var():
+    """Test: x = 65; print(chr(x)) -> 'A'"""
+    bf = transpile('x = 65\nprint(chr(x))')
+    output = run_bf(bf)
+    assert output == "A", f"Expected 'A', got '{output}'"
+
+def test_input():
+    """Test: input() reads one character from stdin"""
+    bf = transpile('x = input()')
+    output = run_bf(bf, 'A')
+    assert output == "", f"Expected '', got '{output}'"
+
+def test_print_input():
+    """Test: x = input(); print(chr(x)) -> echos input"""
+    bf = transpile('x = input()\nprint(chr(x))')
+    output = run_bf(bf, 'B')
+    assert output == "B", f"Expected 'B', got '{output}'"
+
+def test_while_loop():
+    """Test: while x > 0: loop with decrement in body"""
+    bf = transpile('x = 3\nwhile x > 0:\n    print(chr(65))\n    x = x - 1')
+    output = run_bf(bf, timeout=5)
+    assert output == "AAA", f"Expected 'AAA', got '{output}'"
+
+def test_while_loop_no_body_decr():
+    """Test: while x > 0: without decrement - infinite loop (skip)"""
+    pytest.skip("requires body to decrement var")
 
 if __name__ == '__main__':
     import pytest
