@@ -5,6 +5,7 @@ Build a Python-to-Brainfuck transpiler that targets a minimal Zork-style game.
 
 ## Selected Approach
 - **Transpiler**: Python subset → Brainfuck (minimal: while loops, arrays, no functions)
+- **Pre-processor**: Converts `for` loops to `while` loops as intermediate step
 - **Game scope**: 2-3 rooms, 1-2 items, basic navigation
 - **Verification**: Run generated BF and verify output matches expected behavior
 
@@ -18,15 +19,33 @@ Create a working transpiler that can generate valid, runnable Brainfuck code.
 ### Python Subset to Support
 - Integer variables (byte cells, 0-255)
 - While loops with [ ]
+- For loops (pre-processed to while)
 - Print statements (ASCII output via .)
 - Input via ,
 - Array access with index
 - Simple arithmetic: +, -, assignment
 
+### Build Pipeline
+```
+game.py → [preprocess.py] → game.pre.py → [verify py_compile] → [transpile.py] → game.bf
+```
+
+### Pre-processor: for loops → while loops
+- **Input:** `for i in range(3):`
+- **Output:**
+  ```python
+  i = 3
+  while i > 0:
+      # body
+      i = i - 1
+  ```
+- **Intermediate file:** `game.pre.py` (for inspection)
+- **Build gate:** `python -m py_compile game.pre.py` must pass
+
 ### Transpiler Components
-1. **Lexer** - Tokenize subset Python
-2. **Parser** - Build AST (very simple)
-3. **Code Generator** - Emit Brainfuck
+1. **Pre-processor** - Convert for loops to while loops
+2. **Verifier** - py_compile check (BUILD GATE)
+3. **Transpiler** - Python subset → Brainfuck
 
 ### Verification Gate 1: Hello World
 - [x] Transpiler accepts `print("Hello")` 
@@ -34,14 +53,29 @@ Create a working transpiler that can generate valid, runnable Brainfuck code.
 - [x] Output is "Hello"
 - [x] **COMMIT** (done: 935a731)
 
-### Current Status
-- Transpiler: print() works
-- BF Interpreter: Python-based bf.py works
-- Game Generator: gen_game_v4.py produces BF but has logic issues
+---
+
+## Phase 2: For Loop Pre-processor
+
+### Goal
+Add `for i in range(n):` support via pre-processing.
+
+### Implementation
+1. Create `preprocess.py`
+2. Parse source for `for (\w+) in range\((\d+)\):` pattern
+3. Convert to: `i = n` + `while i > 0:` + body + `i = i - 1`
+4. Write intermediate `.pre.py` file
+5. Verify with `python -m py_compile` (BUILD GATE)
+
+### Verification Gate 2: For Loops
+- [x] Pre-processor converts for → while correctly
+- [x] Intermediate .pre.py is valid Python (py_compile passes)
+- [x] Generated BF runs correctly
+- [ ] **COMMIT**
 
 ---
 
-## Phase 2: Game Logic in Python Subset
+## Phase 3: Game Logic in Python Subset
 
 ### Goal
 Express the Zork game logic in the Python subset.
