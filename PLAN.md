@@ -81,10 +81,10 @@ while running:
 ```
 
 ### Verification Gate 2: Game Logic
-- [ ] Transpiler handles while loops, if-else, print, input
-- [ ] Generated BF runs without crashes
-- [ ] Game starts and shows prompt
-- [ ] **COMMIT**
+- [x] Transpiler handles while loops, print, input
+- [x] Generated BF runs without crashes
+- [x] Game starts and shows prompt
+- [x] **COMMIT** (done: 59362cc)
 
 ---
 
