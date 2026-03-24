@@ -8,25 +8,36 @@ import tempfile
 PYTHON = '/home/userland/code/zork-bf/venv/bin/python'
 TRANSPILE = '/home/userland/code/zork-bf/transpile.py'
 BF_INTERP = '/home/userland/code/zork-bf/bf.py'
+GAME = '/home/userland/code/zork-bf/game.py'
+
+def transpile_file(filename):
+    with open(filename) as f:
+        source = f.read()
+    result = subprocess.run([PYTHON, TRANSPILE], input=source,
+                           capture_output=True, text=True)
+    return result.stdout
 
 def run_bf(bf_code, input_data=''):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.bf', delete=False) as f:
         f.write(bf_code)
         f.flush()
         result = subprocess.run([PYTHON, BF_INTERP, f.name, input_data], 
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, timeout=60)
         os.unlink(f.name)
         return result.stdout
 
 def test_game_generates_valid_bf():
-    """Test: game.py generates valid BF"""
-    # This tests that our game generator creates working code
-    # We'll test this via the generator directly for now
-    pass
+    """Test: game.py generates valid BF that runs"""
+    bf = transpile_file(GAME)
+    output = run_bf(bf, '\n\n\n\n\n\n')
+    assert "ZORK" in output, f"Expected ZORK in output"
+    assert "YOU WIN" in output, f"Expected YOU WIN in output"
 
-def test_print_multiline():
-    """Test: multiple print statements"""
-    pass
+def test_game_has_welcome():
+    """Test: game shows welcome message"""
+    bf = transpile_file(GAME)
+    output = run_bf(bf, '\n')
+    assert "Welcome" in output or "ZORK" in output
 
 if __name__ == '__main__':
     import pytest
