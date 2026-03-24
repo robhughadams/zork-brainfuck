@@ -107,6 +107,56 @@ class Transpiler:
                 bf.append('<' * cell)
                 continue
             
+            # if x == n: - simple conditional using [ ] pattern
+            # Pattern: set flag=1 if x==n, then [run body -] to run once
+            match = re.match(r'if\s+(\w+)\s*==\s*(\d+):', line)
+            if match:
+                var = match.group(1)
+                val = int(match.group(2))
+                cell = var_cells[var] + 1
+                
+                # Find body (indented lines)
+                i += 1
+                body = []
+                while i < len(lines) and lines[i].startswith('    '):
+                    body.append(lines[i].strip())
+                    i += 1
+                
+                # Set flag at cell+1 if var == val
+                bf.append('>' * cell)  # to var
+                bf.append('[-')        # while var > 0
+                bf.append('>' + '+')   # set flag cell to 1
+                bf.append('<' + '-')   # decrement var
+                bf.append(']')         # end (var=0, flag=1 if orig>0)
+                
+                # Now subtract val from flag
+                bf.append('>' + '+')   # to flag cell
+                bf.append('[-')        # while flag > 0
+                bf.append('-' * val)    # subtract val
+                bf.append('>')         # to temp
+                bf.append('[')         # if temp > 0 (was > val)
+                bf.append('-')          # consume
+                bf.append('<<-')        # clear flag
+                bf.append(']')
+                bf.append('<<[-]>>')   # clear temp if was == val
+                bf.append('>')         # back to flag
+                bf.append('-')         # decrement (now 0 if ==, non-zero if !=)
+                bf.append(']')         # end - runs if flag was != val
+                
+                # Now flag is 1 ONLY if var == val
+                # Run body using [body -] pattern
+                bf.append('[')         # if flag > 0
+                for body_line in body:
+                    bf.extend(self.transpile_line(body_line, var_cells))
+                bf.append('-')         # zero flag
+                bf.append(']')         # end if
+                
+                # Restore var from backup in temp cell
+                bf.append('>')          # to temp
+                bf.append('[-<<+>>]')   # copy back to var
+                bf.append('<<')         # to cell 0
+                continue
+            
             bf.extend(self.transpile_line(line, var_cells))
             i += 1
         
