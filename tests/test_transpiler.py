@@ -86,20 +86,20 @@ def test_while_loop():
 
 def test_while_loop_no_body_decr():
     """Test: while x > 0: without decrement - infinite loop (skip)"""
-    pytest.skip("requires body to decrement var")
+    pytest.skip("requires body to decrement var - documented behavior")
 
-@pytest.mark.skip(reason="if complex - causes infinite loops in BF")
+@pytest.mark.skip(reason="if statements cause infinite loops in BF")
 def test_if_statement():
     """Test: if x == 1: runs body when true"""
     bf = transpile('x = 1\nif x == 1:\n    print(chr(65))')
-    output = run_bf(bf)
+    output = run_bf(bf, timeout=10)
     assert output == "A", f"Expected 'A', got '{output}'"
 
-@pytest.mark.skip(reason="if complex - causes infinite loops in BF")
+@pytest.mark.skip(reason="if statements cause infinite loops in BF")
 def test_if_false():
     """Test: if x == 1: runs nothing when false"""
     bf = transpile('x = 0\nif x == 1:\n    print(chr(65))')
-    output = run_bf(bf)
+    output = run_bf(bf, timeout=10)
     assert output == "", f"Expected '', got '{output}'"
 
 if __name__ == '__main__':

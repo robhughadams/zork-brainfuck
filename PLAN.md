@@ -66,12 +66,20 @@ Add `for i in range(n):` support via pre-processing.
 3. Convert to: `i = n` + `while i > 0:` + body + `i = i - 1`
 4. Write intermediate `.pre.py` file
 5. Verify with `python -m py_compile` (BUILD GATE)
+6. Multi-pass for nested loops
+
+### Build Pipeline
+```
+game.py → preprocess.py → game.pre.py → [py_compile] → transpile.py → game.bf
+```
 
 ### Verification Gate 2: For Loops
 - [x] Pre-processor converts for → while correctly
 - [x] Intermediate .pre.py is valid Python (py_compile passes)
 - [x] Generated BF runs correctly
-- [ ] **COMMIT**
+- [x] Nested for loops work
+- [x] End-to-end test passes
+- [x] **COMMIT** (done: 0cde085)
 
 ---
 

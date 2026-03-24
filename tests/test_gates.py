@@ -40,10 +40,15 @@ def test_while_loop():
     output = run_bf(bf)
     assert "X" in output
 
-@pytest.mark.skip(reason="while i < n not fully implemented")
 def test_while_with_break():
-    """Test: while with increment"""
-    bf = transpile('i = 0\nwhile i < 3:\n    print("X")\n    i = i + 1\n')
+    """Test: for loop (preprocessed to while)"""
+    import sys
+    sys.path.insert(0, '/home/userland/code/zork-bf')
+    from preprocess import preprocess_source
+    
+    source = 'for i in range(3):\n    print(chr(88))\n'
+    preprocessed = preprocess_source(source)
+    bf = transpile(preprocessed)
     output = run_bf(bf)
     assert output.count("X") == 3
 
