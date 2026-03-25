@@ -17,13 +17,21 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.13'
+        cache: 'pip'
     
-    - name: Create venv
-      run: python -m venv venv
+    - name: Cache venv
+      id: cache-venv
+      uses: actions/cache@v4
+      with:
+        path: venv
+        key: venv-${{ runner.os }}-py3.13-${{ hashFiles('game/', 'src/', 'tests/') }}
+        restore-keys: |
+          venv-${{ runner.os }}-py3.13-
     
-    - name: Install dependencies
+    - name: Create venv and install
       run: |
-        venv/bin/pip install pytest
+        if [ ! -d "venv" ]; then python -m venv venv; fi
+        venv/bin/pip install --upgrade pip pytest
     
     - name: Run tests
       run: |
