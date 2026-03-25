@@ -51,16 +51,20 @@ zork-bf/
 - `for i in range(n):` - via preprocessor
 
 ### Known Limitations
-- If statements cause infinite loops (not implemented)
+- If statements cause infinite loops (not implemented - skipped in tests)
 - While loops require body to decrement counter
 
-## TODO: Features Needed to Compile zork-py
+## Progress
+
+### Completed
+- [x] **DONE**: Support `while True:` infinite loop (via lowering in preprocessor)
+- [x] **DONE**: Support `exit()` function call (via lowering in preprocessor)
+
+### TODO: Features Needed to Compile zork-py
 
 ### High Priority
-- [ ] **TODO**: Implement `if/elif/else` statements - current implementation causes infinite loops
+- [ ] **TODO**: Implement `if/elif/else` statements - requires proper BF pattern
 - [ ] **TODO**: Support `while x == n:` comparison in loop condition
-- [ ] **TODO**: Support `while True:` infinite loop
-- [ ] **TODO**: Support `exit()` function call
 
 ### Medium Priority
 - [ ] **TODO**: Support string methods like `.lower()`
