@@ -54,6 +54,25 @@ zork-bf/
 - If statements cause infinite loops (not implemented)
 - While loops require body to decrement counter
 
+## TODO: Features Needed to Compile zork-py
+
+### High Priority
+- [ ] **TODO**: Implement `if/elif/else` statements - current implementation causes infinite loops
+- [ ] **TODO**: Support `while x == n:` comparison in loop condition
+- [ ] **TODO**: Support `while True:` infinite loop
+- [ ] **TODO**: Support `exit()` function call
+
+### Medium Priority
+- [ ] **TODO**: Support string methods like `.lower()`
+- [ ] **TODO**: Support `input("prompt")` with prompt argument
+- [ ] **TODO**: Support `input().lower()` chaining
+- [ ] **TODO**: Support string equality `s == "text"`
+
+### Lower Priority
+- [ ] **TODO**: Support `break` statement
+- [ ] **TODO**: Support nested input in conditionals
+- [ ] **TODO**: Optimize BF output size (current: 226KB for simple game)
+
 ## Tests
 
 28 tests passing

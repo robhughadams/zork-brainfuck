@@ -21,7 +21,7 @@ import py_compile
 import tempfile
 
 
-def preprocess_source(source, max_passes=5):
+def preprocess_source(source, max_passes=10):
     """Convert for loops to while loops. Run multiple passes to handle nesting."""
     for pass_num in range(max_passes):
         lines = source.split('\n')
@@ -70,6 +70,41 @@ def preprocess_source(source, max_passes=5):
                 result_lines.append(' ' * body_indent + f'{var_name} = {var_name} - 1')
                 
                 # Continue processing (don't increment i again - already at next line)
+                continue
+            
+            # Match: while True: -> while running:
+            match = re.match(r'(\s*)while\s+True\s*:', line)
+            if match:
+                modified = True
+                indent = match.group(1)
+                result_lines.append(f'{indent}running = 1')
+                result_lines.append(f'{indent}while running > 0:')
+                
+                # Collect body
+                i += 1
+                body_lines = []
+                while i < len(lines):
+                    body_line = lines[i]
+                    if body_line.strip() and not body_line.startswith(indent + '    '):
+                        break
+                    if body_line.strip():
+                        body_lines.append(body_line)
+                    i += 1
+                
+                for body_line in body_lines:
+                    result_lines.append(body_line)
+                
+                # Add: running = 0 at end to exit loop
+                if body_lines:
+                    body_indent = len(body_lines[0]) - len(body_lines[0].lstrip())
+                    result_lines.append(' ' * body_indent + 'running = 0')
+                continue
+            
+            # Handle exit() -> running = 0
+            if 'exit()' in line:
+                modified = True
+                result_lines.append(line.replace('exit()', 'running = 0'))
+                i += 1
                 continue
             
             result_lines.append(line)
