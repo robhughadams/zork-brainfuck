@@ -1,0 +1,3 @@
+[submodule "vendor/zork-py"]
+	path = vendor/zork-py
+	url = https://github.com/iamjawa/zork-py.git
