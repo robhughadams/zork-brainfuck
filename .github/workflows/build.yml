@@ -1,0 +1,40 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    
+    - name: Create venv
+      run: python -m venv venv
+    
+    - name: Install dependencies
+      run: |
+        venv/bin/pip install pytest
+    
+    - name: Run tests
+      run: |
+        venv/bin/pytest tests/ -v
+    
+    - name: Build game
+      run: |
+        venv/bin/python src/preprocess.py game/game.py
+        venv/bin/python -m py_compile game/game.pre.py
+        venv/bin/python -m src.transpile < game/game.pre.py > game.bf
+    
+    - name: Verify game runs
+      run: |
+        venv/bin/python src/bf.py game.bf <<< $'\n\n\n\n\n\n\n'
