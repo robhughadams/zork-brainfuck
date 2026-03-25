@@ -4,11 +4,13 @@ import subprocess
 import sys
 import os
 import tempfile
+import pathlib
 
-PYTHON = '/home/userland/code/zork-bf/venv/bin/python'
-TRANSPILE = '/home/userland/code/zork-bf/transpile.py'
-BF_INTERP = '/home/userland/code/zork-bf/bf.py'
-GAME = '/home/userland/code/zork-bf/game.py'
+ROOT = pathlib.Path(__file__).parent.parent
+PYTHON = str(ROOT / 'venv/bin/python')
+TRANSPILE = str(ROOT / 'src/transpile.py')
+BF_INTERP = str(ROOT / 'src/bf.py')
+GAME = str(ROOT / 'game/game.py')
 
 def transpile_file(filename):
     with open(filename) as f:

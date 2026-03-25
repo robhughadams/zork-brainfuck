@@ -5,10 +5,12 @@ import sys
 import os
 import tempfile
 import pytest
+import pathlib
 
-PYTHON = '/home/userland/code/zork-bf/venv/bin/python'
-TRANSPILE = '/home/userland/code/zork-bf/transpile.py'
-BF_INTERP = '/home/userland/code/zork-bf/bf.py'
+ROOT = pathlib.Path(__file__).parent.parent
+PYTHON = str(ROOT / 'venv/bin/python')
+TRANSPILE = str(ROOT / 'src/transpile.py')
+BF_INTERP = str(ROOT / 'src/bf.py')
 
 def run_bf(bf_code, input_data=''):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.bf', delete=False) as f:

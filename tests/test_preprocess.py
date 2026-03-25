@@ -3,8 +3,10 @@
 import pytest
 import sys
 import os
+import pathlib
 
-sys.path.insert(0, '/home/userland/code/zork-bf')
+ROOT = pathlib.Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT / 'src'))
 from preprocess import preprocess_source, verify_python
 
 
@@ -142,7 +144,7 @@ def test_end_to_end_preprocess_transpile():
         
         # Transpile
         result = subprocess.run(
-            ['/home/userland/code/zork-bf/venv/bin/python', '/home/userland/code/zork-bf/transpile.py'],
+            [str(ROOT / 'venv/bin/python'), str(ROOT / 'src/transpile.py')],
             input=preprocessed,
             capture_output=True,
             text=True
@@ -156,7 +158,7 @@ def test_end_to_end_preprocess_transpile():
             bf_path = f.name
         
         result = subprocess.run(
-            ['/home/userland/code/zork-bf/venv/bin/python', '/home/userland/code/zork-bf/bf.py', bf_path],
+            [str(ROOT / 'venv/bin/python'), str(ROOT / 'src/bf.py'), bf_path],
             capture_output=True,
             text=True
         )
