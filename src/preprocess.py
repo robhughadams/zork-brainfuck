@@ -77,18 +77,28 @@ def preprocess_source(source, max_passes=10):
             if match:
                 modified = True
                 indent = match.group(1)
+                # Detect indent character (space or tab)
+                indent_str = indent if indent else ''
+                body_indent_str = indent_str + '    '  # 4 spaces for detection
+                
                 result_lines.append(f'{indent}running = 1')
                 result_lines.append(f'{indent}while running > 0:')
                 
-                # Collect body
+                # Collect body - handle both tabs and spaces
                 i += 1
                 body_lines = []
                 while i < len(lines):
                     body_line = lines[i]
-                    if body_line.strip() and not body_line.startswith(indent + '    '):
-                        break
-                    if body_line.strip():
+                    if not body_line.strip():
                         body_lines.append(body_line)
+                        i += 1
+                        continue
+                    # Check if we've dedented past the while body
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    indent_len = len(indent) + 4  # body should be at least 4 more
+                    if line_indent < indent_len:
+                        break
+                    body_lines.append(body_line)
                     i += 1
                 
                 for body_line in body_lines:
