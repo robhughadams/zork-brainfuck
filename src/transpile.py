@@ -45,7 +45,8 @@ class Transpiler:
         # Process statements with while loop support
         i = 0
         while i < len(lines):
-            line = lines[i].strip()
+            orig_line = lines[i]
+            line = orig_line.strip()
             if not line or line.startswith('#'):
                 i += 1
                 continue
@@ -56,8 +57,9 @@ class Transpiler:
             if match:
                 var = match.group(1)
                 cell = var_cells[var] + 1
+                while_indent = len(orig_line) - len(orig_line.lstrip())
                 
-                # Find body (indented lines - handle both tabs and spaces)
+                # Find body (indented lines)
                 i += 1
                 body = []
                 while i < len(lines):
@@ -65,13 +67,25 @@ class Transpiler:
                     if not body_line.strip():
                         i += 1
                         continue
-                    # Body should be indented more than the while statement
                     line_indent = len(body_line) - len(body_line.lstrip())
-                    while_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
                     if line_indent <= while_indent:
                         break
                     body.append(body_line.strip())
                     i += 1
+                
+                # Generate loop BF
+                bf.append('>' * cell)
+                bf.append('[')
+                
+                for body_line in body:
+                    bf.extend(self.transpile_line(body_line, var_cells, base_cell=cell))
+                
+                bf.append('<' + '>' * cell)
+                bf.append(']')
+                bf.append('<' * cell)
+                continue
+            
+            # while x < n:
                 
                 # Go to var, then loop: [ body that MUST decrement var ]
                 bf.append('>' * cell)  # go to var
