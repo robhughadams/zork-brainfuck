@@ -27,6 +27,9 @@ jobs:
         restore-keys: |
           venv-${{ runner.os }}-py3.13-
     
+    - name: Install brainfuck
+      run: sudo apt-get install -y beef
+    
     - name: Create venv and install
       run: |
         if [ ! -d "venv" ]; then python -m venv venv; fi
@@ -41,9 +44,6 @@ jobs:
         venv/bin/python src/preprocess.py game/game.py
         venv/bin/python -m py_compile game/game.pre.py
         venv/bin/python -m src.transpile < game/game.pre.py > game.bf
-    
-    - name: Install brainfuck
-      run: sudo apt-get install -y beef
     
     - name: Verify game runs
       run: |
