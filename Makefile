@@ -20,9 +20,6 @@ game/game.pre.py: game/game.py src/preprocess.py
 run: game.bf
 	brainfuck game.bf
 
-run-python: game.bf
-	$(VENV_PY) src/bf.py game.bf
-
 build-zorkpy: vendor/zork-py/zork.pre.py
 	$(VENV_PY) -m src.transpile < vendor/zork-py/zork.pre.py > vendor/zork-py/zork.bf
 
