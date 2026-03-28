@@ -5,19 +5,17 @@ import sys
 import os
 import tempfile
 import pytest
-import pathlib
+from conftest import ROOT, PYTHON, TRANSPILE
 
-ROOT = pathlib.Path(__file__).parent.parent
-PYTHON = str(ROOT / 'venv/bin/python')
-TRANSPILE = str(ROOT / 'src/transpile.py')
-BF_INTERP = str(ROOT / 'src/bf.py')
+BF_INTERP = 'beef'
 PREPROCESS = str(ROOT / 'src/preprocess.py')
 
 def run_bf(bf_code, input_data='', timeout=5):
     with tempfile.NamedTemporaryFile(mode='w', suffix='.bf', delete=False) as f:
         f.write(bf_code)
         f.flush()
-        result = subprocess.run([PYTHON, BF_INTERP, f.name, input_data], 
+        result = subprocess.run([BF_INTERP, f.name], 
+                               input=input_data,
                                capture_output=True, text=True, timeout=timeout)
         os.unlink(f.name)
         return result.stdout, result.returncode

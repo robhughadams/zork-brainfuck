@@ -158,7 +158,7 @@ def test_end_to_end_preprocess_transpile():
             bf_path = f.name
         
         result = subprocess.run(
-            [str(ROOT / 'venv/bin/python'), str(ROOT / 'src/bf.py'), bf_path],
+            ['beef', bf_path],
             capture_output=True,
             text=True
         )

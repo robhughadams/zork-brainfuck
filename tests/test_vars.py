@@ -2,23 +2,7 @@
 """Test transpiler variable support"""
 import subprocess
 import sys
-import os
-import tempfile
-import pathlib
-
-ROOT = pathlib.Path(__file__).parent.parent
-PYTHON = str(ROOT / 'venv/bin/python')
-TRANSPILE = str(ROOT / 'src/transpile.py')
-BF_INTERP = str(ROOT / 'src/bf.py')
-
-def run_bf(bf_code, input_data=''):
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.bf', delete=False) as f:
-        f.write(bf_code)
-        f.flush()
-        result = subprocess.run([PYTHON, BF_INTERP, f.name, input_data], 
-                               capture_output=True, text=True)
-        os.unlink(f.name)
-        return result.stdout
+from conftest import ROOT, PYTHON, TRANSPILE, run_bf
 
 def transpile(source):
     result = subprocess.run([PYTHON, TRANSPILE], input=source, 

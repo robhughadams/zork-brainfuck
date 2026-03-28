@@ -43,8 +43,8 @@ jobs:
         venv/bin/python -m src.transpile < game/game.pre.py > game.bf
     
     - name: Install brainfuck
-      run: sudo apt-get install -y bf
+      run: sudo apt-get install -y beef
     
     - name: Verify game runs
       run: |
-        bf game.bf <<< $'\n\n\n\n\n\n\n'
+        beef game.bf <<< $'\n\n\n\n\n\n\n'

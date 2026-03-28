@@ -18,7 +18,7 @@ game/game.pre.py: game/game.py src/preprocess.py
 	$(VENV_PY) src/preprocess.py game/game.py
 
 run: game.bf
-	brainfuck game.bf
+	beef game.bf
 
 build-zorkpy: vendor/zork-py/zork.pre.py
 	$(VENV_PY) -m src.transpile < vendor/zork-py/zork.pre.py > vendor/zork-py/zork.bf
@@ -27,7 +27,7 @@ vendor/zork-py/zork.pre.py: vendor/zork-py/zork.py src/preprocess.py
 	$(VENV_PY) src/preprocess.py vendor/zork-py/zork.py
 
 run-zorkpy: vendor/zork-py/zork.bf
-	$(VENV_PY) src/bf.py vendor/zork-py/zork.bf
+	beef vendor/zork-py/zork.bf
 
 clean:
 	rm -f game/game.pre.py game.bf vendor/zork-py/zork.pre.py vendor/zork-py/zork.bf
