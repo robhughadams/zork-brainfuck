@@ -192,5 +192,80 @@ class TestStringInput:
         assert output == "Hello Bob", f"Expected 'Hello Bob', got '{output}'"
 
 
+class TestStringLowerUpper:
+    """Phase 5: String case transformation (.lower() / .upper())"""
+
+    def test_lower_simple(self):
+        """Convert uppercase string to lowercase"""
+        bf = transpile('s = "HELLO"\ns = s.lower()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "hello", f"Expected 'hello', got '{output}'"
+
+    def test_upper_simple(self):
+        """Convert lowercase string to uppercase"""
+        bf = transpile('s = "hello"\ns = s.upper()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "HELLO", f"Expected 'HELLO', got '{output}'"
+
+    def test_lower_mixed(self):
+        """Convert mixed case to lowercase"""
+        bf = transpile('s = "HeLLo"\ns = s.lower()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "hello", f"Expected 'hello', got '{output}'"
+
+    def test_upper_mixed(self):
+        """Convert mixed case to uppercase"""
+        bf = transpile('s = "HeLLo"\ns = s.upper()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "HELLO", f"Expected 'HELLO', got '{output}'"
+
+    def test_lower_preserves_numbers(self):
+        """Lower should preserve non-alphabetic characters"""
+        bf = transpile('s = "A1B2C3"\ns = s.lower()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "a1b2c3", f"Expected 'a1b2c3', got '{output}'"
+
+    def test_upper_preserves_numbers(self):
+        """Upper should preserve non-alphabetic characters"""
+        bf = transpile('s = "a1b2c3"\ns = s.upper()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "A1B2C3", f"Expected 'A1B2C3', got '{output}'"
+
+    def test_lower_preserves_punctuation(self):
+        """Lower should preserve punctuation"""
+        bf = transpile('s = "A!B@C#"\ns = s.lower()\nprint(s)')
+        output = run_bf(bf)
+        assert output == "a!b@c#", f"Expected 'a!b@c#', got '{output}'"
+
+
+class TestStringEquality:
+    """Phase 6: String equality comparison (==)"""
+
+    def test_eq_exact_match(self):
+        """Case-sensitive equality - exact match"""
+        bf = transpile('s = "hi"\nif s == "hi":\n    print("Y")')
+        output = run_bf(bf)
+        assert output == "Y", f"Expected 'Y', got '{output}'"
+
+    def test_eq_case_no_match(self):
+        """Case-sensitive equality - different case = no match"""
+        bf = transpile('s = "HI"\nif s == "hi":\n    print("Y")')
+        output = run_bf(bf)
+        assert output == "", f"Expected '', got '{output}'"
+
+    def test_eq_length_differs(self):
+        """Case-sensitive equality - different length = no match"""
+        bf = transpile('s = "hi"\nif s == "h":\n    print("Y")')
+        output = run_bf(bf)
+        assert output == "", f"Expected '', got '{output}'"
+
+    @pytest.mark.skip(reason="Runtime string comparison not yet implemented")
+    def test_eq_after_lower(self):
+        """Equality after .lower() for case-insensitive compare"""
+        bf = transpile('s = "HI"\ns = s.lower()\nif s == "hi":\n    print("Y")')
+        output = run_bf(bf)
+        assert output == "Y", f"Expected 'Y', got '{output}'"
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

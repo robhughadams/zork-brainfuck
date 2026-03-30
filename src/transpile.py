@@ -230,7 +230,6 @@ class Transpiler:
                 for body_line in body:
                     bf.extend(self.transpile_line(body_line, base_cell=cell))
                 
-                bf.append('<' + '>' * cell)
                 bf.append(']')
                 bf.append('<' * cell)
                 continue
@@ -282,10 +281,45 @@ class Transpiler:
                 # Generate body BF
                 for body_line in body:
                     bf.extend(self.transpile_line(body_line))
-                
+                 
                 bf.append('<' * cell)
                 bf.append(']')
                 bf.append('<' * cell)
+                continue
+            
+            # if s == "literal": - skip (too complex for now)
+            # String equality will be handled by preprocessor for now
+            match = re.match(r'if\s+(\w+)\s*==\s*"([^"]+)":', line)
+            if match:
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    if_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
+                    if line_indent <= if_indent:
+                        break
+                    i += 1
+                i -= 1
+                continue
+            
+            # while s == "literal": - skip for now
+            match = re.match(r'while\s+(\w+)\s*==\s*"([^"]+)":', line)
+            if match:
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    while_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
+                    if line_indent <= while_indent:
+                        break
+                    i += 1
+                i -= 1
                 continue
             
             # if x == n: - skip for now (causes issues in BF)
@@ -390,14 +424,23 @@ class Transpiler:
                     bf.append('<' * (cell + 12))  # return to cell 0
                 return bf
         
-        # print("text")
+        # print("text") - navigate to temp cell (0) first
         match = re.match(r'print\("([^"]*)"\)', line)
         if match:
             text = match.group(1)
+            cell = 0 - base_cell
+            if cell >= 0:
+                bf.append('>' * cell)
+            else:
+                bf.append('<' * (-cell))
             for char in text:
                 bf.append('[-]')
                 bf.append('+' * ord(char))
                 bf.append('.')
+            if cell >= 0:
+                bf.append('<' * cell)
+            else:
+                bf.append('>' * (-cell))
             return bf
         
         # print(chr(65)) - ALWAYS use temp cell (cell 0), go from current pos
@@ -652,6 +695,58 @@ class Transpiler:
                 bf.append('[-]')
                 bf.append('+' * char_val)
                 bf.append('<' * (dest_cell + 1))
+                return bf
+        
+        # s = s.lower() - convert string to lowercase in place
+        # For compile-time strings: we know the content, so we can generate simpler BF
+        match = re.match(r'(\w+)\s*=\s*(\w+)\.lower\(\)$', line)
+        if match:
+            dest = match.group(1)
+            src = match.group(2)
+            if self.get_type(src) == 'str':
+                cell = self.get_cell(src)
+                str_content = self.string_vars.get(src, "")
+                str_len = len(str_content)
+                
+                # Navigate to first char
+                bf.append('>' * (cell + 2))
+                
+                # For each character: if uppercase (65-90), add 32
+                for i in range(str_len):
+                    # At char[i], add 32 if it's uppercase
+                    char_ord = ord(str_content[i])
+                    if 65 <= char_ord <= 90:  # uppercase
+                        bf.append('+' * 32)  # add 32 to convert to lowercase
+                    # else: leave unchanged (digit, punctuation, or lowercase)
+                    if i < str_len - 1:
+                        bf.append('>')  # move to next char
+                
+                # Return to cell 0
+                bf.append('<' * (cell + str_len + 1))
+                return bf
+        
+        # s = s.upper() - convert string to uppercase in place
+        match = re.match(r'(\w+)\s*=\s*(\w+)\.upper\(\)$', line)
+        if match:
+            dest = match.group(1)
+            src = match.group(2)
+            if self.get_type(src) == 'str':
+                cell = self.get_cell(src)
+                str_content = self.string_vars.get(src, "")
+                str_len = len(str_content)
+                
+                # Navigate to first char
+                bf.append('>' * (cell + 2))
+                
+                # For each character: if lowercase (97-122), subtract 32
+                for i in range(str_len):
+                    char_ord = ord(str_content[i])
+                    if 97 <= char_ord <= 122:  # lowercase
+                        bf.append('-' * 32)  # subtract 32 to convert to uppercase
+                    if i < str_len - 1:
+                        bf.append('>')
+                
+                bf.append('<' * (cell + str_len + 1))
                 return bf
         
         return bf

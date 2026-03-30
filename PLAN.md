@@ -48,6 +48,10 @@ zork-bf/
 - `x = 5`, `x = x + 1`, `x = x - 1` - variables
 - `x = input()` - character input
 - `while x > 0:` - loops (body must decrement)
+- `s = "hello"` - string variables (bstr format: length + chars)
+- `print(s)` - print string variable
+- `s = s.lower()` / `s = s.upper()` - case conversion (compile-time strings)
+- `if s == "literal":` - compile-time string equality
 - `for i in range(n):` - via preprocessor
 
 ### Known Limitations
@@ -141,9 +145,29 @@ Cell X+n: char[n-1]
 - [ ] **TODO**: Support nested input in conditionals
 - [ ] **TODO**: Optimize BF output size (current: 226KB for simple game)
 
+## Bug Fixes
+
+### 2026-03-30: Fixed infinite loop in while loops
+
+**Problem**: While loops caused infinite loops. The generated BF for `while x > 0:` was:
+```
+[ [-] ... - <> ] <
+```
+The `print("text")` inside loops was clearing the wrong cell, and there was useless navigation code.
+
+**Root causes**:
+1. `print("text")` didn't handle `base_cell` - it always assumed cell 0, clearing the loop counter variable
+2. The while loop had useless `<` + `>` * cell code between body and closing bracket
+
+**Fix** (transpile.py):
+1. Added base_cell navigation to `print("text")` handler (lines 428-444)
+2. Removed useless navigation in while loop (line 233)
+
+**Result**: 75 tests passing, 9 skipped. All previously failing tests now pass.
+
 ## Tests
 
-30 tests passing (includes 20 new string tests), 12 skipped
+75 tests passing (includes 20 new string tests), 9 skipped
 
 ## Usage
 

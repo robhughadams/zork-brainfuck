@@ -97,7 +97,6 @@ def test_if_eq_false():
     assert output == "", f"Expected '', got '{output}'"
 
 
-@pytest.mark.skip(reason="needs review")
 def test_if_else_true_branch():
     """Test: if/else - true branch runs"""
     bf = transpile('x = 1\nwhile x > 0:\n    print("T")\n    x = x - 1')
@@ -113,7 +112,6 @@ def test_if_else_false_branch():
     assert output == "F", f"Expected 'F', got '{output}'"
 
 
-@pytest.mark.skip(reason="needs review - test pattern issue")
 def test_while_eq_true():
     """Test: while x == 1: runs when x equals target"""
     bf = transpile('x = 3\nwhile x > 0:\n    print("A")\n    x = x - 1')
@@ -133,7 +131,6 @@ def test_while_eq_false():
     assert output == "" or output == "A"  # placeholder
 
 
-@pytest.mark.skip(reason="needs review")
 def test_skip_flag_pattern():
     """Test: skip flag pattern works for conditional execution"""
     bf = transpile('_skip = 0\nwhile _skip > 0:\n    print("A")\n    _skip = _skip - 1\nprint("B")')
@@ -141,12 +138,11 @@ def test_skip_flag_pattern():
     assert output == "B", f"Expected 'B', got '{output}'"
 
 
-@pytest.mark.skip(reason="needs review")
 def test_skip_flag_inverted():
     """Test: skip flag inverted - skip when flag is 1"""
     bf = transpile('_skip = 1\nwhile _skip > 0:\n    print("A")\n    _skip = _skip - 1\nprint("B")')
     output = run_bf(bf, timeout=2)
-    assert "A" in output or output == "B"  # placeholder
+    assert output == "AB", f"Expected 'AB', got '{output}'"
 
 
 if __name__ == '__main__':

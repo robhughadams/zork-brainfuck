@@ -276,6 +276,56 @@ def preprocess_source(source, max_passes=10):
                     result_lines.append(' ' * body_indent + 'running = 0')
                 continue
             
+            # Match: if s == "literal": - compile-time string equality
+            match = re.match(r'(\s*)if\s+(\w+)\s*==\s*"([^"]+)":', line)
+            if match:
+                modified = True
+                indent = match.group(1)
+                indent_len = len(indent)
+                var_name = match.group(2)
+                literal = match.group(3)
+                
+                # Look up the variable's value in previous source lines
+                var_value = None
+                for j in range(i):
+                    prev_line = lines[j].strip()
+                    assign_match = re.match(r'(\w+)\s*=\s*"([^"]*)"', prev_line)
+                    if assign_match and assign_match.group(1) == var_name:
+                        var_value = assign_match.group(2)
+                        break
+                
+                if var_value == literal:
+                    # Exact match - keep body
+                    result_lines.append(f'{indent}# if s == "literal": (match)')
+                    i += 1
+                    while i < len(lines):
+                        body_line = lines[i]
+                        if not body_line.strip():
+                            result_lines.append(body_line)
+                            i += 1
+                            continue
+                        line_indent = len(body_line) - len(body_line.lstrip())
+                        if line_indent <= indent_len:
+                            i -= 1
+                            break
+                        result_lines.append(body_line.strip())
+                        i += 1
+                else:
+                    # No match - skip body
+                    result_lines.append(f'{indent}# if s == "literal": (no match)')
+                    i += 1
+                    while i < len(lines):
+                        body_line = lines[i]
+                        if not body_line.strip():
+                            i += 1
+                            continue
+                        line_indent = len(body_line) - len(body_line.lstrip())
+                        if line_indent <= indent_len:
+                            break
+                        i += 1
+                    # Don't decrement i - we've consumed the body lines
+                continue
+            
             # Match: if x == n: -> simple: preserve body but use simple condition
             # For now, just add a comment and preserve body
             match = re.match(r'(\s*)if\s+(\w+)\s*==\s*(\d+):', line)
