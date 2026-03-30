@@ -78,6 +78,9 @@ def preprocess_source(source, max_passes=10):
     """Convert for loops to while loops. Run multiple passes to handle nesting."""
     # Normalize tabs to spaces FIRST (before any processing)
     source = source.replace('\t', '    ')
+
+    chain_counter = 0
+    compare_counter = 0
     
     for pass_num in range(max_passes):
         lines = source.split('\n')
@@ -200,6 +203,88 @@ def preprocess_source(source, max_passes=10):
                 result_lines.append(line)
                 i += 1
                 continue
+
+            if '# LOWERED_STRING_CHAIN' in line or '# LOWERED_RUNTIME_STRING_EQ' in line:
+                result_lines.append(line)
+                i += 1
+                continue
+
+            # Match chained string dispatch on lowered input, e.g.:
+            # if cmd.lower() == "go east":
+            # elif cmd.lower() == "open door":
+            # else:
+            # Lower to independent if blocks plus a handled flag. This keeps the
+            # lowered Python valid and makes the control flow explicit for the
+            # transpiler, while preserving behavior for lowercase command input.
+            match = re.match(r'(\s*)if\s+(\w+)\.lower\(\)\s*==\s*\(?["\']([^"\']+)["\']\)?:', line)
+            if match:
+                modified = True
+                indent = match.group(1)
+                indent_len = len(indent)
+                var_name = match.group(2)
+                handled_name = f'_handled_{var_name}_{chain_counter}'
+                chain_counter += 1
+
+                branches = []
+                else_body = None
+                chain_i = i
+
+                while chain_i < len(lines):
+                    branch_line = lines[chain_i]
+                    branch_match = re.match(r'(\s*)(if|elif)\s+(\w+)\.lower\(\)\s*==\s*\(?["\']([^"\']+)["\']\)?:', branch_line)
+                    if branch_match and len(branch_match.group(1)) == indent_len and branch_match.group(3) == var_name:
+                        chain_i += 1
+                        body = []
+                        while chain_i < len(lines):
+                            body_line = lines[chain_i]
+                            if not body_line.strip():
+                                body.append(body_line)
+                                chain_i += 1
+                                continue
+                            line_indent = len(body_line) - len(body_line.lstrip())
+                            if line_indent <= indent_len:
+                                break
+                            body.append(body_line)
+                            chain_i += 1
+                        branches.append((branch_match.group(4), body))
+                        continue
+
+                    else_match = re.match(r'(\s*)else\s*:', branch_line)
+                    if else_match and len(else_match.group(1)) == indent_len:
+                        chain_i += 1
+                        else_body = []
+                        while chain_i < len(lines):
+                            body_line = lines[chain_i]
+                            if not body_line.strip():
+                                else_body.append(body_line)
+                                chain_i += 1
+                                continue
+                            line_indent = len(body_line) - len(body_line.lstrip())
+                            if line_indent <= indent_len:
+                                break
+                            else_body.append(body_line)
+                            chain_i += 1
+                    break
+
+                if len(branches) == 1 and else_body is None:
+                    literal, body = branches[0]
+                    result_lines.append(f'{indent}# LOWERED_RUNTIME_STRING_EQ')
+                    result_lines.append(f'{indent}if {var_name} == "{literal}":')
+                    result_lines.extend(body)
+                else:
+                    result_lines.append(f'{indent}# LOWERED_STRING_CHAIN')
+                    result_lines.append(f'{indent}{handled_name} = 1')
+                    for literal, body in branches:
+                        result_lines.append(f'{indent}# LOWERED_RUNTIME_STRING_EQ')
+                        result_lines.append(f'{indent}if {var_name} == "{literal}":')
+                        result_lines.append(f'{indent}    {handled_name} = 0')
+                        result_lines.extend(body)
+                    if else_body is not None:
+                        result_lines.append(f'{indent}if {handled_name} > 0:')
+                        result_lines.extend(else_body)
+
+                i = chain_i
+                continue
             
             # Match: for i in range(3):
             match = re.match(r'(\s*)for (\w+) in range\((\d+)\):', line)
@@ -246,9 +331,6 @@ def preprocess_source(source, max_passes=10):
             if match:
                 modified = True
                 indent = match.group(1)
-                # Detect indent character (space or tab)
-                indent_str = indent if indent else ''
-                body_indent_str = indent_str + '    '  # 4 spaces for detection
                 
                 result_lines.append(f'{indent}running = 1')
                 result_lines.append(f'{indent}while running > 0:')
@@ -272,17 +354,15 @@ def preprocess_source(source, max_passes=10):
                 
                 for body_line in body_lines:
                     result_lines.append(body_line)
-                
-                # Add: running = 0 at end to exit loop
-                if body_lines:
-                    body_indent = len(body_lines[0]) - len(body_lines[0].lstrip())
-                    result_lines.append(' ' * body_indent + 'running = 0')
                 continue
             
             # Match: if s == "literal": - compile-time string equality
             match = re.match(r'(\s*)if\s+(\w+)\s*==\s*"([^"]+)":', line)
             if match:
-                modified = True
+                if i > 0 and lines[i - 1].strip() == '# LOWERED_RUNTIME_STRING_EQ':
+                    result_lines.append(line)
+                    i += 1
+                    continue
                 indent = match.group(1)
                 indent_len = len(indent)
                 var_name = match.group(2)
@@ -290,13 +370,25 @@ def preprocess_source(source, max_passes=10):
                 
                 # Look up the variable's value in previous source lines
                 var_value = None
+                can_fold = False
                 for j in range(i):
                     prev_line = lines[j].strip()
                     assign_match = re.match(r'(\w+)\s*=\s*"([^"]*)"', prev_line)
                     if assign_match and assign_match.group(1) == var_name:
                         var_value = assign_match.group(2)
+                        can_fold = True
+
+                    # Dynamic assignment means we cannot fold this comparison.
+                    if re.match(rf'{var_name}\s*=\s*input\(', prev_line):
+                        can_fold = False
                         break
-                
+
+                if not can_fold:
+                    result_lines.append(line)
+                    i += 1
+                    continue
+
+                modified = True
                 if var_value == literal:
                     # Exact match - keep body
                     result_lines.append(f'{indent}# if s == "literal": (match)')
@@ -309,10 +401,10 @@ def preprocess_source(source, max_passes=10):
                             continue
                         line_indent = len(body_line) - len(body_line.lstrip())
                         if line_indent <= indent_len:
-                            i -= 1
                             break
                         result_lines.append(body_line)
                         i += 1
+                    continue
                 else:
                     # No match - skip body
                     result_lines.append(f'{indent}# if s == "literal": (no match)')
@@ -327,10 +419,18 @@ def preprocess_source(source, max_passes=10):
                             break
                         i += 1
                     # Don't decrement i - we've consumed the body lines
+                    continue
+
+            # Preserve explicit runtime string equality checks emitted by earlier
+            # lowering passes before numeric equality lowering can reinterpret them.
+            match = re.match(r'(\s*)if\s+(\w+)\s*==\s*"([^"]+)":', line)
+            if match:
+                result_lines.append(line)
+                i += 1
                 continue
             
             # Match: if x == n: -> simple: preserve body but use simple condition
-            # For now, just add a comment and preserve body (dedented to match if level)
+            # For now, just add a comment and preserve the nested body structure.
             match = re.match(r'(\s*)if\s+(\w+)\s*==\s*(\d+):', line)
             if match:
                 modified = True
@@ -340,7 +440,9 @@ def preprocess_source(source, max_passes=10):
                 # Add comment about the condition
                 result_lines.append(f'{indent}# if x == n: (simplified)')
                 
-                # Add body directly - dedent to match if level
+                # Drop exactly one indent level from the guarded body so the
+                # statements stay inside the surrounding block without keeping
+                # the removed `if x == n:` indentation level.
                 i += 1
                 while i < len(lines):
                     body_line = lines[i]
@@ -350,12 +452,8 @@ def preprocess_source(source, max_passes=10):
                         continue
                     line_indent = len(body_line) - len(body_line.lstrip())
                     if line_indent <= if_indent:
-                        i -= 1
                         break
-                    # Dedent body to match the if statement's level
-                    excess_indent = line_indent - if_indent
-                    dedented = ' ' * if_indent + body_line[line_indent:]
-                    result_lines.append(dedented)
+                    result_lines.append(body_line[4:])
                     i += 1
                 continue
             
@@ -383,7 +481,6 @@ def preprocess_source(source, max_passes=10):
                         continue
                     line_indent = len(body_line) - len(body_line.lstrip())
                     if line_indent <= len(indent):
-                        i -= 1
                         break
                     result_lines.append(body_line)
                     i += 1
@@ -407,7 +504,6 @@ def preprocess_source(source, max_passes=10):
                         continue
                     curr_indent = len(body_line) - len(body_line.lstrip())
                     if curr_indent <= base_indent:
-                        i -= 1
                         break
                     i += 1
                 # IMPORTANT: Skip the current body line by incrementing i
@@ -430,7 +526,6 @@ def preprocess_source(source, max_passes=10):
                         continue
                     curr_indent = len(body_line) - len(body_line.lstrip())
                     if curr_indent <= base_indent:
-                        i -= 1
                         break
                     i += 1
                 # IMPORTANT: Skip the current body line by incrementing i
@@ -453,7 +548,6 @@ def preprocess_source(source, max_passes=10):
                         continue
                     line_indent = len(body_line) - len(body_line.lstrip())
                     if line_indent <= len(indent):
-                        i -= 1
                         break
                     result_lines.append(body_line)
                     i += 1
@@ -466,15 +560,22 @@ def preprocess_source(source, max_passes=10):
                 indent = match.group(1)
                 var_name = match.group(2)
                 val = match.group(3)
-                
-                temp_name = f'_c_{var_name}'
+                suffix = compare_counter
+                compare_counter += 1
+                temp_name = f'_c_{var_name}_{suffix}'
+                temp_name_rev = f'_c_{var_name}_rev_{suffix}'
                 
                 result_lines.append(f'{indent}_run = 1')
                 result_lines.append(f'{indent}while _run > 0:')
-                result_lines.append(f'{indent}    {temp_name} = {val}')
-                result_lines.append(f'{indent}    {temp_name} = {temp_name} - {var_name}')
+                result_lines.append(f'{indent}    {temp_name} = {var_name}')
+                result_lines.append(f'{indent}    {temp_name} = {temp_name} - {val}')
                 result_lines.append(f'{indent}    if {temp_name} > 0:')
                 result_lines.append(f'{indent}        _run = 0')
+                result_lines.append(f'{indent}    {temp_name_rev} = {val}')
+                result_lines.append(f'{indent}    {temp_name_rev} = {temp_name_rev} - {var_name}')
+                result_lines.append(f'{indent}    if {temp_name_rev} > 0:')
+                result_lines.append(f'{indent}        _run = 0')
+                result_lines.append(f'{indent}    if _run > 0:')
                 
                 i += 1
                 while i < len(lines):
@@ -487,7 +588,7 @@ def preprocess_source(source, max_passes=10):
                     if line_indent <= len(indent):
                         i -= 1
                         break
-                    result_lines.append(body_line)
+                    result_lines.append(f'    {body_line}')
                     i += 1
                 continue
             

@@ -167,19 +167,52 @@ The `print("text")` inside loops was clearing the wrong cell, and there was usel
 
 ## Tests
 
-81 tests passing, 9 skipped
+### 2026-03-30: Comprehensive zork differential E2E suite
 
-### 2026-03-30: Zork E2E tests added
+**New strategy** (`tests/test_zork_e2e.py`):
+- Build a prompt-aware differential harness instead of shallow output checks.
+- Verify pipeline stages in order:
+  1. `vendor/zork-py/zork.py` vs freshly generated `zork.pre.py`
+  2. freshly generated `zork.pre.py` vs freshly generated `zork.bf`
+- Drive both implementations in lockstep, sending the same command stream and failing on the first stdout/stderr/exit mismatch.
+- Compare at prompt boundaries:
+  - `What do you do? `
+  - `Do you want to continue? Y/N `
 
-**E2E Tests** (tests/test_zork_e2e.py):
-- test_01_preprocess_zork_py: zork.py preprocesses without error
-- test_02_transpile_zork_pre: zork.pre.py transpiles to valid BF
-- test_03_zork_runs_and_waits_for_input: game runs and pauses for input
-- test_04_zork_accepts_input_and_continues: input advances game state
-- test_05_zork_full_gameplay: full game navigation works
-- test_06_zork_command_affects_gameplay: commands affect gameplay
+**Coverage manifest**:
+- Added 17 scripted scenarios covering 36 declared branch outcomes across the vendored game.
+- Scenarios include:
+  - all open-field commands
+  - all forest commands
+  - all clearing commands
+  - all cave response branches
+  - alternate cave transitions
+  - suicide exit/restart flows
+  - final-room invalid, success, and restart flows
+- The suite asserts that the manifest covers the full declared branch set before running any runtime comparisons.
 
-**Results**: 6/6 E2E tests pass, zork-py game now works!
+**Why this order matters**:
+- The compiler pipeline lowers Python first, so BF parity is meaningless until lowered Python matches the source game.
+- The new suite therefore treats `original -> lowered` as the first verification gate.
+
+**Compiler work done while wiring the suite**:
+- Added runtime string-dispatch lowering markers in `src/preprocess.py`.
+- Added lowering for chained `.lower() == "literal"` command dispatch into explicit runtime checks.
+- Tightened `while x == n:` lowering to check both directions of equality.
+- Fixed several preprocess pass-stability issues that caused runaway rewrites or invalid indentation.
+
+**Current measured result**:
+- `venv/bin/pytest tests/test_zork_e2e.py -v`
+- 35 collected
+- 1 passed
+- 34 failed
+
+**Current failure shape**:
+- `original -> lowered` still fails broadly.
+- The dominant remaining lowering mismatches are:
+  - restart/exit behavior around the final-room and suicide flows
+  - case-insensitive command matching that the source game gets via `.lower()`
+- `lowered -> bf` also fails, which is expected until the lowered-Python gate passes and runtime string behavior in BF matches the lowered program.
 
 ### 2026-03-30: Fixed zork game - if x > 0: support
 
