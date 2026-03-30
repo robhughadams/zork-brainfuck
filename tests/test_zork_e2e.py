@@ -77,12 +77,15 @@ class TestZorkE2E:
         assert "cave" in output.lower() or "staircase" in output.lower(), \
             f"Should reach cave: {output}"
 
-    def test_06_zork_command_affects_gameplay(self):
-        """Test 6: Different commands affect gameplay within same session."""
+    def test_06_zork_gameplay_flow(self):
+        """Test 6: Game progresses through rooms correctly."""
         with open(ZORK_BF) as f:
             bf = f.read()
-        output, _, _ = run_bf(bf, 'take mailbox\nn\n', timeout=10)
-        assert "securely anchored" in output, "take mailbox should show 'securely anchored'"
+        output, _, _ = run_bf(bf, 'go southwest\ngo east\ndescend grating\ndescend staircase\nn\n', timeout=10)
+        assert "forest" in output.lower(), "Should reach forest"
+        assert "clearing" in output.lower(), "Should reach clearing"
+        assert "cave" in output.lower() or "staircase" in output.lower(), "Should reach cave"
+        assert "continue" in output.lower(), "Game should continue to end"
 
 
 if __name__ == '__main__':

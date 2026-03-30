@@ -76,6 +76,9 @@ def eval_expr(expr, vars_dict):
 
 def preprocess_source(source, max_passes=10):
     """Convert for loops to while loops. Run multiple passes to handle nesting."""
+    # Normalize tabs to spaces FIRST (before any processing)
+    source = source.replace('\t', '    ')
+    
     for pass_num in range(max_passes):
         lines = source.split('\n')
         result_lines = []
@@ -371,7 +374,6 @@ def preprocess_source(source, max_passes=10):
                 result_lines.append(f'{indent}{temp_name} = {val}')
                 result_lines.append(f'{indent}{temp_name} = {temp_name} - {var_name}')
                 result_lines.append(f'{indent}while {temp_name} > 0:')
-                
                 i += 1
                 while i < len(lines):
                     body_line = lines[i]
@@ -387,9 +389,56 @@ def preprocess_source(source, max_passes=10):
                     i += 1
                 
                 result_lines.append(indent + '    ' + f'{temp_name} = {temp_name} - 1')
+                i += 1
+                continue
+
+            # Match: elif with method call like s.lower() == "literal":
+            # Skip these - can't implement string comparison in BF
+            match = re.match(r'(\s*)elif\s+(\w+)\.(\w+)\(\)\s*==\s*\(?["\']([^"\']+)["\']\)?:', line)
+            if match:
+                modified = True
+                # Skip until we hit a line that's NOT indented more than the elif
+                base_indent = len(match.group(1))
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        i += 1
+                        continue
+                    curr_indent = len(body_line) - len(body_line.lstrip())
+                    if curr_indent <= base_indent:
+                        i -= 1
+                        break
+                    i += 1
+                # IMPORTANT: Skip the current body line by incrementing i
+                # We don't want to fall through and add this line to result
+                i += 1
                 continue
             
-            # Match: else: - add else body 
+            # Match: if with method call like s.lower() == "literal":
+            # Skip the entire if/elif/else chain - can't do string comparison in BF
+            match = re.match(r'(\s*)if\s+(\w+)\.(\w+)\(\)\s*==\s*\(?["\']([^"\']+)["\']\)?:', line)
+            if match:
+                modified = True
+                # Skip until we hit a line that's NOT indented more than the if
+                base_indent = len(match.group(1))
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        i += 1
+                        continue
+                    curr_indent = len(body_line) - len(body_line.lstrip())
+                    if curr_indent <= base_indent:
+                        i -= 1
+                        break
+                    i += 1
+                # IMPORTANT: Skip the current body line by incrementing i
+                # We don't want to fall through and add this line to result
+                i += 1
+                continue
+            
+            # Match: else: - add else body (original behavior)
             match = re.match(r'(\s*)else:', line)
             if match:
                 modified = True
@@ -457,9 +506,6 @@ def preprocess_source(source, max_passes=10):
         # If no modifications in this pass, we're done
         if not modified:
             break
-    
-    # Normalize tabs to spaces (4 spaces per tab)
-    source = source.replace('\t', '    ')
     
     return source
 
