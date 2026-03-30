@@ -308,7 +308,7 @@ def preprocess_source(source, max_passes=10):
                         if line_indent <= indent_len:
                             i -= 1
                             break
-                        result_lines.append(body_line.strip())
+                        result_lines.append(body_line)
                         i += 1
                 else:
                     # No match - skip body
@@ -327,16 +327,17 @@ def preprocess_source(source, max_passes=10):
                 continue
             
             # Match: if x == n: -> simple: preserve body but use simple condition
-            # For now, just add a comment and preserve body
+            # For now, just add a comment and preserve body (dedented to match if level)
             match = re.match(r'(\s*)if\s+(\w+)\s*==\s*(\d+):', line)
             if match:
                 modified = True
                 indent = match.group(1)
+                if_indent = len(indent)
                 
                 # Add comment about the condition
                 result_lines.append(f'{indent}# if x == n: (simplified)')
                 
-                # Add body directly - will always run
+                # Add body directly - dedent to match if level
                 i += 1
                 while i < len(lines):
                     body_line = lines[i]
@@ -345,10 +346,13 @@ def preprocess_source(source, max_passes=10):
                         i += 1
                         continue
                     line_indent = len(body_line) - len(body_line.lstrip())
-                    if line_indent <= len(indent):
+                    if line_indent <= if_indent:
                         i -= 1
                         break
-                    result_lines.append(body_line.strip())
+                    # Dedent body to match the if statement's level
+                    excess_indent = line_indent - if_indent
+                    dedented = ' ' * if_indent + body_line[line_indent:]
+                    result_lines.append(dedented)
                     i += 1
                 continue
             
@@ -379,7 +383,7 @@ def preprocess_source(source, max_passes=10):
                     if line_indent <= len(indent):
                         i -= 1
                         break
-                    result_lines.append(indent + '    ' + body_line.strip())
+                    result_lines.append(body_line)
                     i += 1
                 
                 result_lines.append(indent + '    ' + f'{temp_name} = {temp_name} - 1')
@@ -402,7 +406,7 @@ def preprocess_source(source, max_passes=10):
                     if line_indent <= len(indent):
                         i -= 1
                         break
-                    result_lines.append(indent + '    ' + body_line.strip())
+                    result_lines.append(body_line)
                     i += 1
                 continue
             
@@ -434,7 +438,7 @@ def preprocess_source(source, max_passes=10):
                     if line_indent <= len(indent):
                         i -= 1
                         break
-                    result_lines.append(indent + '    ' + body_line.strip())
+                    result_lines.append(body_line)
                     i += 1
                 continue
             
@@ -453,6 +457,9 @@ def preprocess_source(source, max_passes=10):
         # If no modifications in this pass, we're done
         if not modified:
             break
+    
+    # Normalize tabs to spaces (4 spaces per tab)
+    source = source.replace('\t', '    ')
     
     return source
 

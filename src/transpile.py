@@ -287,6 +287,43 @@ class Transpiler:
                 bf.append('<' * cell)
                 continue
             
+            # if x > 0: - execute body once if condition is true
+            match = re.match(r'if\s+(\w+)\s*>\s*0:', line)
+            if match:
+                var = match.group(1)
+                cell = self.get_cell(var) + 1
+                if_indent = len(orig_line) - len(orig_line.lstrip())
+                
+                # Find body (indented lines)
+                i += 1
+                body = []
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    if line_indent <= if_indent:
+                        break
+                    body.append(body_line.strip())
+                    i += 1
+                
+                # Generate BF: go to var, if >0 execute body once, clear var
+                bf.append('>' * cell)
+                bf.append('[')
+                
+                # Execute body once
+                for body_line in body:
+                    bf.extend(self.transpile_line(body_line, base_cell=cell))
+                
+                # Clear the variable to ensure we don't re-enter
+                bf.append('[-]')
+                
+                bf.append(']')
+                bf.append('<' * cell)
+                i -= 1
+                continue
+            
             # if s == "literal": - skip (too complex for now)
             # String equality will be handled by preprocessor for now
             match = re.match(r'if\s+(\w+)\s*==\s*"([^"]+)":', line)
