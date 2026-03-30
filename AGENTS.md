@@ -173,3 +173,8 @@ Strings with non-ASCII chars will have unexpected behavior (UTF-8 encoding not h
 
 - game.py builds and runs successfully
 - Full game with rooms, key, door, treasure works end-to-end
+- **zork-py now works!** (2026-03-30)
+  - 6 E2E tests added in tests/test_zork_e2e.py
+  - Preprocessor infinite loop fixed
+  - `if x > 0:` implemented in transpiler
+  - Full game navigation works

@@ -167,7 +167,40 @@ The `print("text")` inside loops was clearing the wrong cell, and there was usel
 
 ## Tests
 
-75 tests passing (includes 20 new string tests), 9 skipped
+81 tests passing, 9 skipped
+
+### 2026-03-30: Zork E2E tests added
+
+**E2E Tests** (tests/test_zork_e2e.py):
+- test_01_preprocess_zork_py: zork.py preprocesses without error
+- test_02_transpile_zork_pre: zork.pre.py transpiles to valid BF
+- test_03_zork_runs_and_waits_for_input: game runs and pauses for input
+- test_04_zork_accepts_input_and_continues: input advances game state
+- test_05_zork_full_gameplay: full game navigation works
+- test_06_zork_command_affects_gameplay: commands affect gameplay
+
+**Results**: 6/6 E2E tests pass, zork-py game now works!
+
+### 2026-03-30: Fixed zork game - if x > 0: support
+
+**Problem**: zork.bf printed entire game without stopping for input.
+
+**Root causes**:
+1. Preprocessor had infinite loop (body_line.strip() removed whitespace needed for indentation detection)
+2. Transpiler didn't handle `if x > 0:` - needed for preprocessor output like:
+   ```
+   while _run > 0:
+       _c_loop = 4 - loop
+       if _c_loop > 0:
+           _run = 0
+   ```
+
+**Fixes**:
+1. preprocess.py: Fixed body_line handling - preserve original indentation
+2. preprocess.py: Added dedenting for simplified if statements
+3. transpile.py: Added `if x > 0:` support (lines 290-326)
+
+**Result**: zork-py game now pauses for input and responds to commands!
 
 ## Usage
 
