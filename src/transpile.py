@@ -189,10 +189,15 @@ class Transpiler:
         if var_count > 0:
             bf.append('<' * var_count)
         
-        # Current position - start at cell 0 (return after init)
-        current_pos = 0
+        # Process statements recursively (handles nested control flow)
+        bf.extend(self._transpile_block(lines, base_cell=0))
         
-        # Process statements with while loop support
+        return ''.join(bf)
+    
+    def _transpile_block(self, lines, base_cell=0):
+        """Transpile a block of lines with nested control flow support.
+        Pointer starts and ends at base_cell position."""
+        bf = []
         i = 0
         while i < len(lines):
             orig_line = lines[i]
@@ -201,207 +206,157 @@ class Transpiler:
                 i += 1
                 continue
             
-            # while x > 0: - simple BF loop
-            # Pattern: go to x, [ body that decrements x ]
+            # while x > 0: - BF loop with recursive body
             match = re.match(r'while\s+(\w+)\s*>\s*0:', line)
             if match:
                 var = match.group(1)
-                cell = self.get_cell(var) + 1
+                cell = self.get_cell(var) + 1  # absolute cell position
                 while_indent = len(orig_line) - len(orig_line.lstrip())
                 
-                # Find body (indented lines)
+                # Collect body lines (preserve indentation for nesting)
                 i += 1
-                body = []
+                body_lines = []
                 while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
+                    bl = lines[i]
+                    if not bl.strip():
+                        body_lines.append(bl)
                         i += 1
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if line_indent <= while_indent:
+                    bi = len(bl) - len(bl.lstrip())
+                    if bi <= while_indent:
                         break
-                    body.append(body_line.strip())
+                    body_lines.append(bl)
                     i += 1
                 
-                # Generate loop BF
-                bf.append('>' * cell)
+                # Navigate from base_cell to var cell
+                nav = cell - base_cell
+                if nav > 0:
+                    bf.append('>' * nav)
+                elif nav < 0:
+                    bf.append('<' * (-nav))
                 bf.append('[')
                 
-                for body_line in body:
-                    bf.extend(self.transpile_line(body_line, base_cell=cell))
+                # Recursively process body at new base_cell
+                bf.extend(self._transpile_block(body_lines, base_cell=cell))
                 
                 bf.append(']')
-                bf.append('<' * cell)
-                continue
-            
-            # while x < n:
-                
-                # Go to var, then loop: [ body that MUST decrement var ]
-                bf.append('>' * cell)  # go to var
-                bf.append('[')         # while var > 0
-                
-                # Generate body (body must decrement var to exit)
-                # Pass base_cell so body knows we're at 'var' cell
-                for body_line in body:
-                    bf.extend(self.transpile_line(body_line, base_cell=cell))
-                
-                bf.append('<' + '>' * cell)  # ensure we're back at var before ]
-                bf.append(']')
-                bf.append('<' * cell)  # back to cell 0
-                continue
-            
-            # while x < n: - loop n-x times (simplified)
-            match = re.match(r'while\s+(\w+)\s*<\s*(\d+):', line)
-            if match:
-                var = match.group(1)
-                limit = int(match.group(2))
-                cell = self.get_cell(var) + 1
-                
-                # Find body (handle tabs/spaces)
-                i += 1
-                body = []
-                while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
-                        i += 1
-                        continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    while_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
-                    if line_indent <= while_indent:
-                        break
-                    body.append(body_line.strip())
-                    i += 1
-                
-                # Generate loop BF: run (limit - current) times
-                # Use counter pattern: decrement limit, loop until counter is 0
-                bf.append('>' * cell)
-                bf.append('[-')  # while var > 0
-                bf.append('-' * 1)
-                
-                # Generate body BF
-                for body_line in body:
-                    bf.extend(self.transpile_line(body_line))
-                 
-                bf.append('<' * cell)
-                bf.append(']')
-                bf.append('<' * cell)
+                # Navigate back to base_cell
+                if nav > 0:
+                    bf.append('<' * nav)
+                elif nav < 0:
+                    bf.append('>' * (-nav))
                 continue
             
             # if x > 0: - execute body once if condition is true
             match = re.match(r'if\s+(\w+)\s*>\s*0:', line)
             if match:
                 var = match.group(1)
-                cell = self.get_cell(var) + 1
+                cell = self.get_cell(var) + 1  # absolute cell position
                 if_indent = len(orig_line) - len(orig_line.lstrip())
                 
-                # Find body (indented lines)
+                # Collect body lines (preserve indentation)
                 i += 1
-                body = []
+                body_lines = []
                 while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
+                    bl = lines[i]
+                    if not bl.strip():
+                        body_lines.append(bl)
                         i += 1
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if line_indent <= if_indent:
+                    bi = len(bl) - len(bl.lstrip())
+                    if bi <= if_indent:
                         break
-                    body.append(body_line.strip())
+                    body_lines.append(bl)
                     i += 1
                 
-                # Generate BF: go to var, if >0 execute body once, clear var
-                bf.append('>' * cell)
+                # Navigate from base_cell to var cell
+                nav = cell - base_cell
+                if nav > 0:
+                    bf.append('>' * nav)
+                elif nav < 0:
+                    bf.append('<' * (-nav))
                 bf.append('[')
                 
-                # Execute body once
-                for body_line in body:
-                    bf.extend(self.transpile_line(body_line, base_cell=cell))
+                # Recursively process body
+                bf.extend(self._transpile_block(body_lines, base_cell=cell))
                 
-                # Clear the variable to ensure we don't re-enter
+                # Clear variable to ensure single execution
                 bf.append('[-]')
-                
                 bf.append(']')
-                bf.append('<' * cell)
-                i -= 1
+                # Navigate back to base_cell
+                if nav > 0:
+                    bf.append('<' * nav)
+                elif nav < 0:
+                    bf.append('>' * (-nav))
                 continue
             
-            # if s == "literal": - skip (too complex for now)
-            # String equality will be handled by preprocessor for now
-            match = re.match(r'if\s+(\w+)\s*==\s*"([^"]+)":', line)
+            # --- Skip unsupported patterns (consume body, emit nothing) ---
+            
+            # if s == "literal":
+            match = re.match(r'if\s+\w+\s*==\s*"[^"]*":', line)
             if match:
+                skip_indent = len(orig_line) - len(orig_line.lstrip())
                 i += 1
                 while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
+                    bl = lines[i]
+                    if not bl.strip():
                         i += 1
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
-                    if line_indent <= if_indent:
+                    if len(bl) - len(bl.lstrip()) <= skip_indent:
                         break
                     i += 1
-                i -= 1
                 continue
             
-            # while s == "literal": - skip for now
-            match = re.match(r'while\s+(\w+)\s*==\s*"([^"]+)":', line)
+            # while s == "literal":
+            match = re.match(r'while\s+\w+\s*==\s*"[^"]*":', line)
             if match:
+                skip_indent = len(orig_line) - len(orig_line.lstrip())
                 i += 1
                 while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
+                    bl = lines[i]
+                    if not bl.strip():
                         i += 1
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    while_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
-                    if line_indent <= while_indent:
+                    if len(bl) - len(bl.lstrip()) <= skip_indent:
                         break
                     i += 1
-                i -= 1
                 continue
             
-            # if x == n: - skip for now (causes issues in BF)
-            match = re.match(r'if\s+(\w+)\s*==\s*(\d+):', line)
+            # if x == n:
+            match = re.match(r'if\s+\w+\s*==\s*\d+:', line)
             if match:
-                # Skip body
+                skip_indent = len(orig_line) - len(orig_line.lstrip())
                 i += 1
                 while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
+                    bl = lines[i]
+                    if not bl.strip():
                         i += 1
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
-                    if line_indent <= if_indent:
+                    if len(bl) - len(bl.lstrip()) <= skip_indent:
                         break
                     i += 1
-                i -= 1
                 continue
             
-            # while x == n: - skip for now (complex in BF)
-            # The preprocessor generates _cond_var = n - var but that's not enough
-            match = re.match(r'while\s+(\w+)\s*==\s*(\d+):', line)
+            # while x == n:
+            match = re.match(r'while\s+\w+\s*==\s*\d+:', line)
             if match:
-                # For now, just skip the body entirely
-                # This allows transpilation to complete
+                skip_indent = len(orig_line) - len(orig_line.lstrip())
                 i += 1
                 while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
+                    bl = lines[i]
+                    if not bl.strip():
                         i += 1
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    while_indent = len(lines[i-1]) - len(lines[i-1].lstrip())
-                    if line_indent <= while_indent:
+                    if len(bl) - len(bl.lstrip()) <= skip_indent:
                         break
                     i += 1
-                i -= 1
                 continue
             
-            bf.extend(self.transpile_line(line, base_cell=current_pos))
-            current_pos = 0  # transpile_line returns to cell 0
+            # Simple statement - delegate to transpile_line
+            bf.extend(self.transpile_line(line, base_cell=base_cell))
             i += 1
         
-        return ''.join(bf)
+        return bf
     
     def transpile_line(self, line, base_cell=0):
         bf = []
@@ -627,16 +582,73 @@ class Transpiler:
             else:
                 bf.append('>' * (-cell))
             return bf
+        # x = x - y (variable subtraction, preserving y)
+        match = re.match(r'(\w+)\s*=\s*(\w+)\s*-\s*([a-zA-Z_]\w*)$', line)
+        if match:
+            dest = match.group(1)
+            left = match.group(2)
+            right = match.group(3)
+            if dest == left:
+                x_cell = self.get_cell(dest) + 1  # absolute
+                y_cell = self.get_cell(right) + 1  # absolute
+                # Navigate from base_cell to cell 0 (temp)
+                if base_cell > 0:
+                    bf.append('<' * base_cell)
+                elif base_cell < 0:
+                    bf.append('>' * (-base_cell))
+                # Clear temp
+                bf.append('[-]')
+                # Go to y
+                bf.append('>' * y_cell)
+                # Move y to temp: y[ <y_cell + >y_cell - ]
+                bf.append('[')
+                bf.append('<' * y_cell)
+                bf.append('+')
+                bf.append('>' * y_cell)
+                bf.append('-')
+                bf.append(']')
+                # Go to temp (cell 0)
+                bf.append('<' * y_cell)
+                # For each in temp: decrement x, restore y
+                # temp[ >x_cell - ... >y_cell + ... <y_cell - ]
+                bf.append('[')
+                bf.append('>' * x_cell)
+                bf.append('-')
+                # Navigate from x to y
+                if y_cell > x_cell:
+                    bf.append('>' * (y_cell - x_cell))
+                elif y_cell < x_cell:
+                    bf.append('<' * (x_cell - y_cell))
+                bf.append('+')
+                # Navigate from y to temp (cell 0)
+                bf.append('<' * y_cell)
+                bf.append('-')
+                bf.append(']')
+                # Navigate from cell 0 back to base_cell
+                if base_cell > 0:
+                    bf.append('>' * base_cell)
+                elif base_cell < 0:
+                    bf.append('<' * (-base_cell))
+                return bf
+        
         # x = input("prompt") - print prompt first, then read
         match = re.match(r'(\w+)\s*=\s*input\("([^"]*)"\)', line)
         if match:
             var = match.group(1)
             prompt = match.group(2)
-            # First print the prompt
+            # Print prompt using cell 0 (temp) to avoid clobbering base_cell
+            if base_cell > 0:
+                bf.append('<' * base_cell)
+            elif base_cell < 0:
+                bf.append('>' * (-base_cell))
             for char in prompt:
                 bf.append('[-]')
                 bf.append('+' * ord(char))
                 bf.append('.')
+            if base_cell > 0:
+                bf.append('>' * base_cell)
+            elif base_cell < 0:
+                bf.append('<' * (-base_cell))
             # Then do input
             if self.get_type(var) == 'str':
                 cell = self.get_cell(var)

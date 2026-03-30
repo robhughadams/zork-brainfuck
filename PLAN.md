@@ -202,6 +202,28 @@ The `print("text")` inside loops was clearing the wrong cell, and there was usel
 
 **Result**: zork-py game now pauses for input and responds to commands!
 
+### 2026-03-30: Fixed zork room progression (3 transpiler fixes + zork.pre.py rewrite)
+
+**Problem**: zork.bf paused at first prompt but then fell through all remaining prompts and exited.
+
+**Three root causes in transpile.py:**
+1. **No nested control flow**: `while x > 0:` only handled flat statements in body. Inner `while`/`if` blocks were silently dropped, so ALL room blocks executed sequentially with no guards.
+2. **No variable subtraction (`x = x - y`)**: `_c_loop = _c_loop - loop` matched no handler (only constant `x = x - N` existed). Room-guard subtractions were silently dropped.
+3. **Input prompt clobbers loop variable**: `input("prompt")` printed prompt chars using `[-]+N.` at the current cell position (the loop variable's cell), destroying its value.
+
+**Transpiler fixes (src/transpile.py):**
+1. Added `_transpile_block()` method - recursive block transpiler handling nested `while x > 0:`, `if x > 0:`, skip patterns (`if/while x == n`, `if/while s == "..."`)
+2. Added `x = x - y` variable subtraction handler using temp cell 0
+3. Fixed `input("prompt")` to navigate to cell 0 before printing prompt chars
+
+**zork.pre.py rewrite:**
+- Added `if _run > 0:` guards around room content (print + input)
+- Added `loop = NEXT_VALUE` after each room's input to advance rooms (4→8→9→10→11)
+- Added `_run = 0` after room content to exit the while
+- Added `running = 0` at end of last room to exit outer game loop
+
+**Result**: All 81 tests pass (9 skipped), including all 6 E2E tests. Game progresses through all 5 rooms correctly.
+
 ## Usage
 
 ```bash
