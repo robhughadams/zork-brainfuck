@@ -77,6 +77,33 @@ class Transpiler:
             if not line or line.startswith('#'):
                 continue
             
+            # Check for input("prompt") usage
+            match = re.match(r'(\w+)\s*=\s*input\("([^"]*)"\)', line)
+            if match:
+                var_name = match.group(1)
+                is_string_used = False
+                for check_line in lines:
+                    check_line = check_line.strip()
+                    if f'print({var_name})' in check_line or f'{var_name}[' in check_line or f'len({var_name})' in check_line:
+                        is_string_used = True
+                        break
+                
+                if var_name in self.var_cells:
+                    old_entry = self.var_cells[var_name]
+                    if is_string_used and old_entry[1] == 'num':
+                        self.var_cells[var_name] = (old_entry[0], 'str')
+                        self.string_vars[var_name] = ''
+                        var_count += 10
+                else:
+                    if is_string_used:
+                        self.var_cells[var_name] = (var_count, 'str')
+                        self.string_vars[var_name] = ''
+                        var_count += 1 + 10
+                    else:
+                        self.var_cells[var_name] = (var_count, 'num')
+                        var_count += 1
+                continue
+            
             # Check for input() usage
             match = re.match(r'(\w+)\s*=\s*input\(\)', line)
             if match:
@@ -517,35 +544,69 @@ class Transpiler:
             else:
                 bf.append('>' * (-cell))
             return bf
+        # x = input("prompt") - print prompt first, then read
+        match = re.match(r'(\w+)\s*=\s*input\("([^"]*)"\)', line)
+        if match:
+            var = match.group(1)
+            prompt = match.group(2)
+            # First print the prompt
+            for char in prompt:
+                bf.append('[-]')
+                bf.append('+' * ord(char))
+                bf.append('.')
+            # Then do input
+            if self.get_type(var) == 'str':
+                cell = self.get_cell(var)
+                if base_cell > 0:
+                    bf.append('<' * base_cell)
+                elif base_cell < 0:
+                    bf.append('>' * (-base_cell))
+                bf.append('>' * (cell + 2))
+                bf.append('[-]')
+                for i in range(10):
+                    bf.append(',')
+                    bf.append('>')
+                bf.append('<' * 10)
+                bf.append('<' * 1)
+                bf.append('<' * 1)
+                bf.append('+' * 10)
+                bf.append('<' * (cell + 1))
+                return bf
+            else:
+                cell = self.get_cell(var) + 1 - base_cell
+                if cell >= 0:
+                    bf.append('>' * cell)
+                else:
+                    bf.append('<' * (-cell))
+                bf.append(',')
+                if cell >= 0:
+                    bf.append('<' * cell)
+                else:
+                    bf.append('>' * (-cell))
+                return bf
         
         # x = input()
         match = re.match(r'(\w+)\s*=\s*input\(\)', line)
         if match:
             var = match.group(1)
             if self.get_type(var) == 'str':
-                # String input: read up to 10 chars
                 cell = self.get_cell(var)
-                # Navigate from current position to string
                 if base_cell > 0:
                     bf.append('<' * base_cell)
                 elif base_cell < 0:
                     bf.append('>' * (-base_cell))
-                # Go to first char cell (cell+2), skip length
                 bf.append('>' * (cell + 2))
-                bf.append('[-]')  # clear first char cell
-                # Read up to 10 chars
+                bf.append('[-]')
                 for i in range(10):
-                    bf.append(',')  # read char into current cell
-                    bf.append('>')  # move to next
-                # Return: go back to length cell (cell+1), store count, return to cell 0
-                bf.append('<' * 10)  # back to last char position
-                bf.append('<' * 1)  # back to first char
-                bf.append('<' * 1)  # back to length cell
-                bf.append('+' * 10)  # set length to 10 (max)
-                bf.append('<' * (cell + 1))  # back to cell 0
+                    bf.append(',')
+                    bf.append('>')
+                bf.append('<' * 10)
+                bf.append('<' * 1)
+                bf.append('<' * 1)
+                bf.append('+' * 10)
+                bf.append('<' * (cell + 1))
                 return bf
             else:
-                # Number input (single char)
                 cell = self.get_cell(var) + 1 - base_cell
                 if cell >= 0:
                     bf.append('>' * cell)
