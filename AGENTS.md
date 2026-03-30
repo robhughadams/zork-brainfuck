@@ -161,6 +161,14 @@ Strings with non-ASCII chars will have unexpected behavior (UTF-8 encoding not h
    - Prints prompt string before reading input
    - Example: `name = input("Name: ")` prints "Name: " then reads input
 
+6. **Added arithmetic evaluation** (preprocess.py):
+   - Preprocessor evaluates constant arithmetic: `x = 1 + 2` → `x = 3`
+   - Supports +, -, *, / with integer results
+
+7. **Fixed init pointer bug** (transpile.py):
+   - Added return to cell 0 after variable initialization
+   - Was causing extra `>` navigation in assignments
+
 ### Game Status
 
 - game.py builds and runs successfully
