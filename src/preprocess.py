@@ -118,6 +118,25 @@ def preprocess_source(source, max_passes=10):
                             continue
                     except:
                         pass
+                
+                # Try to evaluate arithmetic expressions: x = 1 + 2 -> x = 3
+                # Only evaluate if it contains only numbers and operators (no variables)
+                if '+' in expr or '-' in expr or '*' in expr or '/' in expr:
+                    # Check if expr has any variable names (word characters)
+                    import re as re2
+                    if re2.search(r'[a-zA-Z_]', expr):
+                        pass  # Has variables, don't evaluate
+                    else:
+                        try:
+                            result = eval(expr)
+                            # Handle both int and float (for division)
+                            if isinstance(result, (int, float)) and result == int(result):
+                                result_lines.append(f'{indent}{var_name} = {int(result)}')
+                                modified = True
+                                i += 1
+                                continue
+                        except:
+                            pass
             
             # Handle print("a" + "b" + "c")
             print_concat_any_match = re.match(r'^(\s*)print\((.+)\)(.*)$', line)

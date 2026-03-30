@@ -185,6 +185,9 @@ class Transpiler:
         bf.append('[-]')  # cell 0 = temp
         for i in range(var_count):
             bf.append('>[-]')  # initialize vars to 0
+        # Return to cell 0 after init
+        if var_count > 0:
+            bf.append('<' * var_count)
         
         # Current position - start at cell 0 (return after init)
         current_pos = 0
