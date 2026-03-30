@@ -9,6 +9,7 @@ import pathlib
 ROOT = pathlib.Path(__file__).parent.parent
 PYTHON = str(ROOT / 'venv/bin/python')
 TRANSPILE = str(ROOT / 'src/transpile.py')
+PREPROCESS = str(ROOT / 'src/preprocess.py')
 BF_INTERP = 'beef'
 
 def run_bf(bf_code, input_data='', timeout=120):

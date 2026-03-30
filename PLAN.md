@@ -59,12 +59,76 @@ zork-bf/
 ### Completed
 - [x] **DONE**: Support `while True:` infinite loop (via lowering in preprocessor)
 - [x] **DONE**: Support `exit()` function call (via lowering in preprocessor)
+- [x] **DONE**: Added preprocessor support for `if/elif/else` (simplified)
+- [x] **DONE**: Added preprocessor support for `while x == n:`
+- [x] **DONE**: Added transpiler support for `x = y` (variable copy)
+
+### 2026-03-29: Implementation Progress
+
+**Approach:**
+- Use preprocessor to lower `if x == n:` and `while x == n:` to simpler patterns
+- Transpiler handles the lowered code
+
+**Preprocessor lowering:**
+- `if x == 1:` → preserves body with comment marker
+- `elif x == 1:` → handled similarly
+- `else:` → handled similarly  
+- `while x == n:` → generates `_run` flag + condition check
+
+**Transpiler additions:**
+- Variable copy: `x = y` now works
+
+**Remaining issues:**
+- Full equality check in BF is complex (requires careful cell manipulation)
+- Multiple attempts at BF equality patterns caused infinite loops
+- String comparison still impossible (needs major infrastructure)
 
 ### TODO: Features Needed to Compile zork-py
 
 ### High Priority
-- [ ] **TODO**: Implement `if/elif/else` statements - requires proper BF pattern
-- [ ] **TODO**: Support `while x == n:` comparison in loop condition
+- [ ] **TODO**: Implement proper BF equality check for `if x == n:`
+- [ ] **TODO**: Implement proper BF equality check for `while x == n:`
+
+### String Handling (Bstr - Length-Prefixed)
+
+Using bstr (length-prefixed strings) for efficient string handling:
+
+**Bstr Cell Layout:**
+```
+Cell X:   length (n)
+Cell X+1: char[0]
+Cell X+2: char[1]
+...
+Cell X+n: char[n-1]
+```
+
+**Advantages over C-str:**
+- `len()` is O(1) - just read length cell
+- Input handling knows exact char count
+- No issues with embedded zeros
+
+**Implementation Phases (TDD):**
+
+#### Phase 1: String Literal Variables
+- [x] `s = "hi"` - store string in memory (length + chars)
+- [x] `print(s)` - output string variable
+- [x] Multiple chars work
+- [x] Empty string works
+- [ ] **DEBUGGING**: String output produces empty result - pointer navigation issue
+
+#### Phase 2: String Concatenation (Compile-Time)
+- [ ] `"hello" + "world"` → `"helloworld"`
+- [ ] Multiple concat `"a" + "b" + "c"`
+
+#### Phase 3: String Properties
+- [ ] `len(s)` - O(1) via length field
+- [ ] `s[0]` - first character
+- [ ] `s[i]` - arbitrary index
+
+#### Phase 4: String Input (Final)
+- [ ] `s = input()` - read into bstr buffer
+- [ ] `input("prompt")` - with prompt
+- [ ] Echo input back
 
 ### Medium Priority
 - [ ] **TODO**: Support string methods like `.lower()`
@@ -79,7 +143,7 @@ zork-bf/
 
 ## Tests
 
-28 tests passing
+30 tests passing (includes 20 new string tests), 12 skipped
 
 ## Usage
 

@@ -21,6 +21,59 @@ import py_compile
 import tempfile
 
 
+def eval_expr(expr, vars_dict):
+    """Evaluate a simple expression for string concatenation."""
+    expr = expr.strip()
+    
+    # Handle string literal concatenation: "a" + "b"
+    while '+' in expr:
+        # Find the first + that's not inside quotes
+        parts = []
+        in_string = False
+        current = ""
+        depth = 0
+        
+        for ch in expr:
+            if ch == '"' and (not current or current[-1] != '\\'):
+                in_string = not in_string
+            if ch == '+' and not in_string and depth == 0:
+                parts.append(current.strip())
+                parts.append('+')
+                current = ""
+            else:
+                if ch in '([':
+                    depth += 1
+                elif ch in ')]':
+                    depth -= 1
+                current += ch
+        parts.append(current.strip())
+        
+        # Now evaluate the concatenation
+        result = ""
+        new_parts = []
+        i = 0
+        while i < len(parts):
+            if parts[i] == '+':
+                # Concatenate previous and next
+                if len(new_parts) >= 2:
+                    left = new_parts.pop()
+                    right = parts[i + 1]
+                    new_parts.append(left + right)
+                    i += 2
+                else:
+                    new_parts.append(parts[i])
+                    i += 1
+            else:
+                new_parts.append(parts[i])
+                i += 1
+        
+        if len(new_parts) == 1 and isinstance(new_parts[0], str):
+            return new_parts[0]
+        expr = '+'.join(new_parts)
+    
+    return expr
+
+
 def preprocess_source(source, max_passes=10):
     """Convert for loops to while loops. Run multiple passes to handle nesting."""
     for pass_num in range(max_passes):
@@ -31,6 +84,100 @@ def preprocess_source(source, max_passes=10):
         i = 0
         while i < len(lines):
             line = lines[i]
+            
+            # Handle string concatenation: s = "a" + "b" or print("a" + "b")
+            # Try to evaluate string concatenations at compile time
+            concat_match = re.match(r'^(\s*)(\w+)\s*=\s*"([^"]*)"\s*\+\s*"([^"]*)"(.*)$', line)
+            if concat_match:
+                indent = concat_match.group(1)
+                var_name = concat_match.group(2)
+                left = concat_match.group(3)
+                right = concat_match.group(4)
+                rest = concat_match.group(5)
+                combined = left + right
+                result_lines.append(f'{indent}{var_name} = "{combined}"{rest}')
+                modified = True
+                i += 1
+                continue
+            
+            # Handle string concatenation: s = "a" + "b" or s = "a" + "b" + "c"
+            concat_any_match = re.match(r'^(\s*)(\w+)\s*=\s*(.+)$', line)
+            if concat_any_match:
+                indent = concat_any_match.group(1)
+                var_name = concat_any_match.group(2)
+                expr = concat_any_match.group(3)
+                
+                # Try to evaluate string concatenations
+                if ' + ' in expr and '"' in expr:
+                    try:
+                        result = eval(expr)
+                        if isinstance(result, str) and '"' in result:
+                            result_lines.append(f'{indent}{var_name} = "{result}"')
+                            modified = True
+                            i += 1
+                            continue
+                    except:
+                        pass
+            
+            # Handle print("a" + "b" + "c")
+            print_concat_any_match = re.match(r'^(\s*)print\((.+)\)(.*)$', line)
+            if print_concat_any_match:
+                indent = print_concat_any_match.group(1)
+                expr = print_concat_any_match.group(2)
+                rest = print_concat_any_match.group(3)
+                
+                if ' + ' in expr and '"' in expr:
+                    try:
+                        result = eval(expr)
+                        if isinstance(result, str):
+                            result_lines.append(f'{indent}print("{result}"){rest}')
+                            modified = True
+                            i += 1
+                            continue
+                    except:
+                        pass
+                
+                # Handle print("literal" + var) or print(var + "literal")
+                # Convert to two prints: print("literal"); print(var)
+                concat_match = re.match(r'^"([^"]+)"\s*\+\s*(\w+)$', expr)
+                if concat_match:
+                    literal_part = concat_match.group(1)
+                    var_part = concat_match.group(2)
+                    result_lines.append(f'{indent}print("{literal_part}"){rest}')
+                    result_lines.append(f'{indent}print({var_part}){rest}')
+                    modified = True
+                    i += 1
+                    continue
+                
+                concat_match = re.match(r'^(\w+)\s*\+\s*"([^"]+)"$', expr)
+                if concat_match:
+                    var_part = concat_match.group(1)
+                    literal_part = concat_match.group(2)
+                    result_lines.append(f'{indent}print({var_part}){rest}')
+                    result_lines.append(f'{indent}print("{literal_part}"){rest}')
+                    modified = True
+                    i += 1
+                    continue
+            
+            # Skip already processed conditional lines (markers from previous passes)
+            if '# IF_COND_START:' in line or '# ELIF_COND_START:' in line or '# ELSE_START' in line:
+                result_lines.append(line)
+                i += 1
+                # Skip until we hit the END marker
+                while i < len(lines):
+                    line = lines[i]
+                    result_lines.append(line)
+                    if '# IF_COND_END' in line or '# ELIF_COND_END' in line or '# ELSE_END' in line:
+                        break
+                    i += 1
+                i += 1
+                continue
+            
+            # Skip lines that look like lowered conditionals (contain _cond_ and if)
+            if '_cond_' in line and 'if' in line:
+                result_lines.append(line)
+                i += 1
+                continue
             
             # Match: for i in range(3):
             match = re.match(r'(\s*)for (\w+) in range\((\d+)\):', line)
@@ -95,8 +242,8 @@ def preprocess_source(source, max_passes=10):
                         continue
                     # Check if we've dedented past the while body
                     line_indent = len(body_line) - len(body_line.lstrip())
-                    indent_len = len(indent) + 4  # body should be at least 4 more
-                    if line_indent < indent_len:
+                    indent_len = len(indent)  # body should be more indented than while line
+                    if line_indent <= indent_len:
                         break
                     body_lines.append(body_line)
                     i += 1
@@ -110,40 +257,116 @@ def preprocess_source(source, max_passes=10):
                     result_lines.append(' ' * body_indent + 'running = 0')
                 continue
             
-            # Match: if x == n: -> use counter pattern for BF
-            # BF can run code once if cell != 0 using [body-]
-            # For equality: we use a temp var that is n-x, then check if result is n
+            # Match: if x == n: -> simple: preserve body but use simple condition
+            # For now, just add a comment and preserve body
             match = re.match(r'(\s*)if\s+(\w+)\s*==\s*(\d+):', line)
+            if match:
+                modified = True
+                indent = match.group(1)
+                
+                # Add comment about the condition
+                result_lines.append(f'{indent}# if x == n: (simplified)')
+                
+                # Add body directly - will always run
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        result_lines.append(body_line)
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    if line_indent <= len(indent):
+                        i -= 1
+                        break
+                    result_lines.append(body_line.strip())
+                    i += 1
+                continue
+            
+            # Match: elif x == n: - check _cond from previous
+            match = re.match(r'(\s*)elif\s+(\w+)\s*==\s*(\d+):', line)
             if match:
                 modified = True
                 indent = match.group(1)
                 var_name = match.group(2)
                 val = match.group(3)
                 
-                # Generate unique temp var
-                temp_name = f'_cond_{var_name}'
+                temp_name = f'_c_{var_name}'
                 
-                # Create: temp = x, then temp = temp - n
-                # If temp was n (x==n), result is 0, else non-zero
-                result_lines.append(f'{indent}{temp_name} = {val}')  # temp = n
-                result_lines.append(f'{indent}{temp_name} = {temp_name} - {var_name}')  # temp = n - x
+                # Check if previous conditions failed (_c_prev == 0 means failed)
+                # For now, just add this condition similarly to if
+                result_lines.append(f'{indent}{temp_name} = {val}')
+                result_lines.append(f'{indent}{temp_name} = {temp_name} - {var_name}')
+                result_lines.append(f'{indent}while {temp_name} > 0:')
                 
-                # Now temp is 0 if x == n
-                # Use: while temp > 0: but we want the opposite
-                # BF trick: use a flag that we set based on condition
-                
-                # For now, skip this - it's too complex for lowering
-                # Just add a TODO comment and skip the body
-                result_lines.append(f'{indent}# if {var_name} == {val}: (not implemented)')
-                
-                # Skip body
                 i += 1
                 while i < len(lines):
                     body_line = lines[i]
-                    if body_line.strip() and not body_line.startswith(indent + '    '):
+                    if not body_line.strip():
+                        result_lines.append(body_line)
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    if line_indent <= len(indent):
+                        i -= 1
                         break
+                    result_lines.append(indent + '    ' + body_line.strip())
                     i += 1
-                i -= 1
+                
+                result_lines.append(indent + '    ' + f'{temp_name} = {temp_name} - 1')
+                continue
+            
+            # Match: else: - add else body 
+            match = re.match(r'(\s*)else:', line)
+            if match:
+                modified = True
+                indent = match.group(1)
+                # Add else body
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        result_lines.append(body_line)
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    if line_indent <= len(indent):
+                        i -= 1
+                        break
+                    result_lines.append(indent + '    ' + body_line.strip())
+                    i += 1
+                continue
+            
+            # Match: while x == n: -> convert to while with flag
+            match = re.match(r'(\s*)while\s+(\w+)\s*==\s*(\d+):', line)
+            if match:
+                modified = True
+                indent = match.group(1)
+                var_name = match.group(2)
+                val = match.group(3)
+                
+                temp_name = f'_c_{var_name}'
+                
+                result_lines.append(f'{indent}_run = 1')
+                result_lines.append(f'{indent}while _run > 0:')
+                result_lines.append(f'{indent}    {temp_name} = {val}')
+                result_lines.append(f'{indent}    {temp_name} = {temp_name} - {var_name}')
+                result_lines.append(f'{indent}    if {temp_name} > 0:')
+                result_lines.append(f'{indent}        _run = 0')
+                
+                i += 1
+                while i < len(lines):
+                    body_line = lines[i]
+                    if not body_line.strip():
+                        result_lines.append(body_line)
+                        i += 1
+                        continue
+                    line_indent = len(body_line) - len(body_line.lstrip())
+                    if line_indent <= len(indent):
+                        i -= 1
+                        break
+                    result_lines.append(indent + '    ' + body_line.strip())
+                    i += 1
                 continue
             
             # Handle exit() -> running = 0

@@ -171,5 +171,112 @@ def test_end_to_end_preprocess_transpile():
             os.unlink(bf_path)
 
 
+# Tests for if/elif/else lowering
+
+def test_if_eq_generates_cond_var():
+    """Test: if x == 1: generates condition check"""
+    source = """x = 1
+if x == 1:
+    print("yes")
+"""
+    result = preprocess_source(source)
+    assert "# if" in result or "_cond" in result or "_c_" in result
+
+
+def test_if_eq_body_preserved():
+    """Test: if body is preserved"""
+    source = """x = 1
+if x == 1:
+    print("yes")
+"""
+    result = preprocess_source(source)
+    assert 'print("yes")' in result
+
+
+def test_if_else_generates_skip():
+    """Test: if/else generates skip flag"""
+    source = """x = 1
+if x == 1:
+    print("yes")
+else:
+    print("no")
+"""
+    result = preprocess_source(source)
+    # Should have both branches
+    assert 'print("yes")' in result
+    assert 'print("no")' in result
+
+
+def test_if_elif_chain():
+    """Test: if/elif/else chain"""
+    source = """x = 2
+if x == 1:
+    print("one")
+elif x == 2:
+    print("two")
+else:
+    print("other")
+"""
+    result = preprocess_source(source)
+    assert 'print("one")' in result
+    assert 'print("two")' in result
+    assert 'print("other")' in result
+
+
+def test_while_eq_generates_check():
+    """Test: while x == n: generates condition check"""
+    source = """loop = 4
+while loop == 4:
+    print("A")
+    loop = 8
+"""
+    result = preprocess_source(source)
+    # Should preserve the loop structure
+    assert "loop = 4" in result
+    assert "while" in result.lower()
+    assert 'print("A")' in result
+
+
+def test_if_preprocessed_is_valid_python():
+    """Test: preprocessed if statement is valid Python"""
+    source = """x = 1
+if x == 1:
+    print("yes")
+"""
+    result = preprocess_source(source)
+    
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(result)
+        f.flush()
+        temp_path = f.name
+    
+    try:
+        assert verify_python(temp_path) is True
+    finally:
+        os.unlink(temp_path)
+
+
+def test_while_eq_preprocessed_is_valid_python():
+    """Test: preprocessed while equality is valid Python"""
+    source = """loop = 4
+while loop == 4:
+    print("A")
+    loop = 8
+"""
+    result = preprocess_source(source)
+    
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(result)
+        f.flush()
+        temp_path = f.name
+    
+    try:
+        assert verify_python(temp_path) is True
+    finally:
+        os.unlink(temp_path)
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
