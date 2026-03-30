@@ -543,19 +543,27 @@ def verify_python(filepath):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: preprocess.py <input.py> [--verify]")
+        print("Usage: preprocess.py <input.py> [--verify] [-o <output.py>]")
         print("  --verify: Also run py_compile to verify valid Python")
+        print("  -o: Specify output file (default: input.pre.py)")
         sys.exit(1)
     
     input_file = sys.argv[1]
     verify = '--verify' in sys.argv
+    
+    # Check for -o option
+    output_path = None
+    if '-o' in sys.argv:
+        idx = sys.argv.index('-o')
+        if idx + 1 < len(sys.argv):
+            output_path = sys.argv[idx + 1]
     
     if not os.path.exists(input_file):
         print(f"ERROR: File not found: {input_file}", file=sys.stderr)
         sys.exit(1)
     
     # Pre-process
-    output_file = preprocess_file(input_file)
+    output_file = preprocess_file(input_file, output_path)
     print(f"Pre-processed: {input_file} -> {output_file}")
     
     # Verify if requested

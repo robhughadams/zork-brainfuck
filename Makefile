@@ -20,16 +20,16 @@ game/game.pre.py: game/game.py src/preprocess.py
 run: game.bf
 	beef game.bf
 
-build-zorkpy: vendor/zork-py/zork.pre.py
-	$(VENV_PY) -m src.transpile < vendor/zork-py/zork.pre.py > vendor/zork-py/zork.bf
+build-zorkpy: zork.pre.py
+	$(VENV_PY) -m src.transpile < zork.pre.py > zork.bf
 
-vendor/zork-py/zork.pre.py: vendor/zork-py/zork.py src/preprocess.py
-	$(VENV_PY) src/preprocess.py vendor/zork-py/zork.py
+zork.pre.py: vendor/zork-py/zork.py src/preprocess.py
+	$(VENV_PY) src/preprocess.py vendor/zork-py/zork.py -o zork.pre.py
 
-run-zorkpy: vendor/zork-py/zork.bf
-	beef vendor/zork-py/zork.bf
+run-zorkpy: zork.bf
+	beef zork.bf
 
 clean:
-	rm -f game/game.pre.py game.bf vendor/zork-py/zork.pre.py vendor/zork-py/zork.bf
+	rm -f game/game.pre.py game.bf zork.pre.py zork.bf
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true

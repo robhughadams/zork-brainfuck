@@ -10,8 +10,8 @@ from conftest import ROOT, PYTHON, TRANSPILE, PREPROCESS
 BF_INTERP = 'beef'
 
 ZORK_PY = str(ROOT / 'vendor/zork-py/zork.py')
-ZORK_PRE = str(ROOT / 'vendor/zork-py/zork.pre.py')
-ZORK_BF = str(ROOT / 'vendor/zork-py/zork.bf')
+ZORK_PRE = str(ROOT / 'zork.pre.py')
+ZORK_BF = str(ROOT / 'zork.bf')
 
 
 def run_bf(bf_code, input_data='', timeout=30):
