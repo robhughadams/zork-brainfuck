@@ -154,3 +154,14 @@ Strings with non-ASCII chars will have unexpected behavior (UTF-8 encoding not h
 - 20/20 string tests passing
 - All numeric tests passing
 - 12 tests skipped (feature not yet implemented)
+
+### Latest Additions
+
+5. **Added `input("prompt")` support** (transpile.py):
+   - Prints prompt string before reading input
+   - Example: `name = input("Name: ")` prints "Name: " then reads input
+
+### Game Status
+
+- game.py builds and runs successfully
+- Full game with rooms, key, door, treasure works end-to-end
