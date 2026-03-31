@@ -145,6 +145,34 @@ def test_skip_flag_inverted():
     assert output == "AB", f"Expected 'AB', got '{output}'"
 
 
+def test_variable_subtraction_zero():
+    """Test: x = x - y handles equal values"""
+    bf = transpile('x = 4\ny = 4\nx = x - y\nprint(chr(x + 48))')
+    output = run_bf(bf, timeout=2)
+    assert output == "0", f"Expected '0', got '{output}'"
+
+
+def test_variable_subtraction_nonzero():
+    """Test: x = x - y preserves subtraction result"""
+    bf = transpile('x = 7\ny = 4\nx = x - y\nprint(chr(x + 48))')
+    output = run_bf(bf, timeout=2)
+    assert output == "3", f"Expected '3', got '{output}'"
+
+
+def test_variable_copy_preserves_source():
+    """Test: x = y copies without clobbering y"""
+    bf = transpile('y = 4\nx = y\nprint(chr(x + 48))\nprint(chr(y + 48))')
+    output = run_bf(bf, timeout=2)
+    assert output == "44", f"Expected '44', got '{output}'"
+
+
+def test_if_gt_zero_preserves_condition_value():
+    """Test: if x > 0 executes without clearing x"""
+    bf = transpile('x = 1\nif x > 0:\n    print("A")\nprint(chr(x + 48))')
+    output = run_bf(bf, timeout=2)
+    assert output == "A1", f"Expected 'A1', got '{output}'"
+
+
 if __name__ == '__main__':
     import pytest
     pytest.main([__file__, '-v'])

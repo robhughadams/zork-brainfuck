@@ -201,18 +201,30 @@ The `print("text")` inside loops was clearing the wrong cell, and there was usel
 - Tightened `while x == n:` lowering to check both directions of equality.
 - Fixed several preprocess pass-stability issues that caused runaway rewrites or invalid indentation.
 
-**Current measured result**:
-- `venv/bin/pytest tests/test_zork_e2e.py -v`
-- 35 collected
-- 1 passed
-- 34 failed
+**Final measured result**:
+- `venv/bin/pytest tests/ -v`
+- 127 collected
+- 118 passed
+- 9 skipped
 
-**Current failure shape**:
-- `original -> lowered` still fails broadly.
-- The dominant remaining lowering mismatches are:
-  - restart/exit behavior around the final-room and suicide flows
-  - case-insensitive command matching that the source game gets via `.lower()`
-- `lowered -> bf` also fails, which is expected until the lowered-Python gate passes and runtime string behavior in BF matches the lowered program.
+**Final fixes that closed the gap**:
+- `src/transpile.py`
+  - fixed runtime string input generation so BF stays balanced and works with both newline-terminated and EOF-terminated input
+  - fixed runtime string equality so repeated checks on the same input do not mutate the string being compared
+  - added runtime `s.lower()` support for input strings used by zork command dispatch
+  - fixed nested-block pointer handling for string input inside guarded blocks
+  - fixed `if x > 0:` lowering so it no longer clobbers the condition variable
+- `tests/test_strings.py`
+  - added regressions for runtime input equality, `input().lower()` equality, and repeated comparisons against the same runtime string
+- `tests/test_transpiler.py`
+  - added regressions for variable copy, variable subtraction, and preserving condition values through `if x > 0:`
+- `tests/test_preprocess.py`
+  - updated the end-to-end expectation to match Python-style newline output semantics now used by BF print
+
+**Pipeline status**:
+- `original -> lowered` zork differential gate: passing
+- `lowered -> bf` zork differential gate: passing
+- full repository test suite: passing
 
 ### 2026-03-30: Fixed zork game - if x > 0: support
 

@@ -18,7 +18,7 @@ def run_bf(bf_code, input_data='', timeout=5):
                                input=input_data,
                                capture_output=True, text=True, timeout=timeout)
         os.unlink(f.name)
-        return result.stdout, result.returncode
+        return result.stdout.replace('\n', ''), result.returncode
 
 def transpile(source):
     result = subprocess.run([PYTHON, TRANSPILE], input=source, 

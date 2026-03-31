@@ -10,6 +10,8 @@ class Transpiler:
         self.cell = 0
         self.var_cells = {}  # name -> (cell, type) - populated in transpile
         self.string_vars = {}  # name -> string content
+        self.runtime_string_capacity = 24
+        self.scratch_used = 0
     
     def get_cell(self, var_name):
         """Get cell number from var_cells entry (handles tuple format)"""
@@ -24,6 +26,333 @@ class Transpiler:
         if isinstance(entry, tuple):
             return entry[1]
         return 'num'
+
+    def _emit_temp_text(self, text, base_cell):
+        bf = []
+        cell = 0 - base_cell
+        if cell >= 0:
+            bf.append('>' * cell)
+        else:
+            bf.append('<' * (-cell))
+        for char in text:
+            bf.append('[-]')
+            bf.append('+' * ord(char))
+            bf.append('.')
+        if cell >= 0:
+            bf.append('<' * cell)
+        else:
+            bf.append('>' * (-cell))
+        return bf
+
+    def _emit_print_newline(self, base_cell):
+        return self._emit_temp_text('\n', base_cell)
+
+    def _move_abs(self, from_cell, to_cell):
+        delta = to_cell - from_cell
+        if delta > 0:
+            return '>' * delta
+        if delta < 0:
+            return '<' * (-delta)
+        return ''
+
+    def _reserve_scratch(self, count):
+        start = self.var_count + self.scratch_used + 1
+        self.scratch_used += count
+        return start
+
+    def _emit_string_input(self, var_name, prompt, base_cell):
+        bf = []
+        start = self.get_cell(var_name) + 1
+        len_cell = start
+        capacity = self.runtime_string_capacity
+        chars_start = start + 1
+        scratch = self._reserve_scratch(4)
+        active = scratch
+        exec_cell = scratch + 1
+        tmp = scratch + 2
+        restore = scratch + 3
+
+        bf.extend(self._emit_temp_text(prompt, base_cell))
+
+        current = base_cell
+        for cell in [len_cell] + list(range(chars_start, chars_start + capacity + 1)) + [active, exec_cell, tmp, restore]:
+            bf.append(self._move_abs(current, cell))
+            bf.append('[-]')
+            current = cell
+
+        # active=1 means the next unrolled read slot should execute.
+        bf.append(self._move_abs(current, active))
+        bf.append('+')
+        current = active
+
+        for index in range(capacity):
+            char_cell = chars_start + index
+
+            # Move active -> exec_cell so this slot executes at most once.
+            bf.append(self._move_abs(current, active))
+            bf.append('[')
+            bf.append('-')
+            bf.append(self._move_abs(active, exec_cell))
+            bf.append('+')
+            bf.append(self._move_abs(exec_cell, active))
+            bf.append(']')
+            current = active
+
+            bf.append(self._move_abs(current, exec_cell))
+            bf.append('[')
+            bf.append('-')
+
+            # Read one character and copy it into tmp+restore, while also using
+            # exec_cell as a non-EOF flag for this slot.
+            bf.append(self._move_abs(exec_cell, char_cell))
+            bf.append(',')
+            current = char_cell
+            bf.append('[')
+            bf.append('-')
+            bf.append(self._move_abs(char_cell, tmp))
+            bf.append('+')
+            bf.append(self._move_abs(tmp, restore))
+            bf.append('+')
+            bf.append(self._move_abs(restore, exec_cell))
+            bf.append('+')
+            bf.append(self._move_abs(exec_cell, char_cell))
+            bf.append(']')
+            current = char_cell
+
+            # exec_cell > 0 means a non-EOF character was read. Compare tmp
+            # against newline; only non-newline characters are stored.
+            bf.append(self._move_abs(current, exec_cell))
+            bf.append('[')
+            bf.append('[-]')
+            bf.append(self._move_abs(exec_cell, tmp))
+            current = tmp
+            bf.append('-' * 10)
+            bf.append('[')
+            bf.append('[-]')
+            bf.append(self._move_abs(tmp, len_cell))
+            bf.append('+')
+            bf.append(self._move_abs(len_cell, active))
+            bf.append('+')
+            bf.append(self._move_abs(active, restore))
+            current = restore
+            bf.append('[')
+            bf.append('-')
+            bf.append(self._move_abs(restore, char_cell))
+            bf.append('+')
+            bf.append(self._move_abs(char_cell, restore))
+            bf.append(']')
+            bf.append(self._move_abs(restore, tmp))
+            bf.append(']')
+            current = tmp
+
+            # Return to exec_cell before closing the non-EOF branch.
+            bf.append(self._move_abs(current, exec_cell))
+            current = exec_cell
+            bf.append(']')
+
+            # Discard newline/EOF scratch state.
+            bf.append(self._move_abs(current, restore))
+            bf.append('[-]')
+            current = restore
+
+            # Return to exec_cell and close the one-shot gate for this slot.
+            bf.append(self._move_abs(current, exec_cell))
+            bf.append(']')
+            current = exec_cell
+
+        bf.append(self._move_abs(current, base_cell))
+        return bf
+
+    def _emit_runtime_string_eq(self, var_name, literal, body_lines, base_cell):
+        """Emit BF for `if s == "literal":` where s is a runtime string."""
+        bf = []
+        str_cell = self.get_cell(var_name) + 1
+        scratch = self._reserve_scratch(3)
+        match_cell = scratch
+        tmp_cell = scratch + 1
+        restore_cell = scratch + 2
+        body_indent = None
+
+        def emit_cell_eq_const(cell, value, current):
+            seq = []
+
+            # Clear temp cells.
+            for scratch_cell in (tmp_cell, restore_cell):
+                seq.append(self._move_abs(current, scratch_cell))
+                seq.append('[-]')
+                current = scratch_cell
+
+            # Copy source -> tmp + restore.
+            seq.append(self._move_abs(current, cell))
+            current = cell
+            seq.append('[')
+            seq.append('-')
+            seq.append(self._move_abs(current, tmp_cell))
+            seq.append('+')
+            current = tmp_cell
+            seq.append(self._move_abs(current, restore_cell))
+            seq.append('+')
+            current = restore_cell
+            seq.append(self._move_abs(current, cell))
+            current = cell
+            seq.append(']')
+
+            # Restore original source cell.
+            seq.append(self._move_abs(current, restore_cell))
+            current = restore_cell
+            seq.append('[')
+            seq.append('-')
+            seq.append(self._move_abs(current, cell))
+            seq.append('+')
+            current = cell
+            seq.append(self._move_abs(current, restore_cell))
+            current = restore_cell
+            seq.append(']')
+
+            # Compare tmp against constant. Any nonzero result clears match_cell.
+            seq.append(self._move_abs(current, tmp_cell))
+            current = tmp_cell
+            if value > 0:
+                seq.append('-' * value)
+            seq.append('[')
+            seq.append('-')
+            seq.append(self._move_abs(current, match_cell))
+            seq.append('[-]')
+            current = match_cell
+            seq.append(self._move_abs(current, tmp_cell))
+            current = tmp_cell
+            seq.append(']')
+            return seq, current
+
+        if body_lines:
+            first_nonempty = next((line for line in body_lines if line.strip()), None)
+            if first_nonempty is not None:
+                body_indent = len(first_nonempty) - len(first_nonempty.lstrip())
+
+        current = base_cell
+
+        # match_cell = 1
+        bf.append(self._move_abs(current, match_cell))
+        current = match_cell
+        bf.append('[-]+')
+
+        # Exact match requires equal stored length.
+        seq, current = emit_cell_eq_const(str_cell, len(literal), current)
+        bf.extend(seq)
+
+        for idx, char in enumerate(literal):
+            char_cell = str_cell + idx + 1
+            seq, current = emit_cell_eq_const(char_cell, ord(char), current)
+            bf.extend(seq)
+
+        # Execute body once if match_cell is still set.
+        bf.append(self._move_abs(current, match_cell))
+        bf.append('[')
+        dedented_body = []
+        for body_line in body_lines:
+            if not body_line.strip() or body_indent is None:
+                dedented_body.append(body_line)
+            else:
+                dedented_body.append(body_line[body_indent:])
+        bf.extend(self._transpile_block(dedented_body, base_cell=match_cell))
+        bf.append('[-]')
+        bf.append(']')
+        current = match_cell
+
+        # Return to caller base cell.
+        bf.append(self._move_abs(current, base_cell))
+        return bf
+
+    def _emit_runtime_string_case_transform(self, var_name, to_lower, base_cell):
+        """Emit BF to lowercase/uppercase a runtime string in place."""
+        bf = []
+        str_cell = self.get_cell(var_name) + 1
+        length = self.runtime_string_capacity
+
+        scratch = self._reserve_scratch(3)
+        tmp = scratch
+        restore = scratch + 1
+        flag = scratch + 2
+
+        start_ord = ord('A') if to_lower else ord('a')
+        end_ord = ord('Z') if to_lower else ord('z')
+        shift = 32 if to_lower else -32
+
+        for idx in range(length):
+            char_cell = str_cell + idx + 1
+            for target in range(start_ord, end_ord + 1):
+                current = base_cell
+
+                # Clear scratch cells.
+                for cell in (tmp, restore, flag):
+                    bf.append(self._move_abs(current, cell))
+                    bf.append('[-]')
+                    current = cell
+
+                # Copy char -> tmp + restore.
+                bf.append(self._move_abs(current, char_cell))
+                current = char_cell
+                bf.append('[')
+                bf.append('-')
+                bf.append(self._move_abs(current, tmp))
+                bf.append('+')
+                current = tmp
+                bf.append(self._move_abs(current, restore))
+                bf.append('+')
+                current = restore
+                bf.append(self._move_abs(current, char_cell))
+                current = char_cell
+                bf.append(']')
+
+                # Restore original char from restore.
+                bf.append(self._move_abs(current, restore))
+                current = restore
+                bf.append('[')
+                bf.append('-')
+                bf.append(self._move_abs(current, char_cell))
+                bf.append('+')
+                current = char_cell
+                bf.append(self._move_abs(current, restore))
+                current = restore
+                bf.append(']')
+
+                # tmp = char - target
+                bf.append(self._move_abs(current, tmp))
+                current = tmp
+                bf.append('-' * target)
+
+                # flag = 1 if tmp == 0 else 0
+                bf.append(self._move_abs(current, flag))
+                current = flag
+                bf.append('+')
+                bf.append(self._move_abs(current, tmp))
+                current = tmp
+                bf.append('[')
+                bf.append('-')
+                bf.append(self._move_abs(current, flag))
+                current = flag
+                bf.append('[-]')
+                bf.append(self._move_abs(current, tmp))
+                current = tmp
+                bf.append(']')
+
+                # Apply case shift on match.
+                bf.append(self._move_abs(current, flag))
+                current = flag
+                bf.append('[')
+                bf.append('-')
+                bf.append(self._move_abs(current, char_cell))
+                current = char_cell
+                if shift > 0:
+                    bf.append('+' * shift)
+                else:
+                    bf.append('-' * (-shift))
+                bf.append(self._move_abs(current, flag))
+                current = flag
+                bf.append(']')
+
+                bf.append(self._move_abs(current, base_cell))
+        return bf
     
     def transpile(self, source):
         lines = source.strip().split('\n')
@@ -84,7 +413,7 @@ class Transpiler:
                 is_string_used = False
                 for check_line in lines:
                     check_line = check_line.strip()
-                    if f'print({var_name})' in check_line or f'{var_name}[' in check_line or f'len({var_name})' in check_line:
+                    if f'print({var_name})' in check_line or f'{var_name}[' in check_line or f'len({var_name})' in check_line or f'if {var_name} ==' in check_line or f'{var_name} = {var_name}.lower()' in check_line or f'{var_name} = {var_name}.upper()' in check_line:
                         is_string_used = True
                         break
                 
@@ -93,12 +422,12 @@ class Transpiler:
                     if is_string_used and old_entry[1] == 'num':
                         self.var_cells[var_name] = (old_entry[0], 'str')
                         self.string_vars[var_name] = ''
-                        var_count += 10
+                        var_count += self.runtime_string_capacity
                 else:
                     if is_string_used:
                         self.var_cells[var_name] = (var_count, 'str')
                         self.string_vars[var_name] = ''
-                        var_count += 1 + 10
+                        var_count += 1 + self.runtime_string_capacity
                     else:
                         self.var_cells[var_name] = (var_count, 'num')
                         var_count += 1
@@ -113,7 +442,7 @@ class Transpiler:
                 for check_line in lines:
                     check_line = check_line.strip()
                     # If print(s) or s[i] or len(s), it's used as string
-                    if f'print({var_name})' in check_line or f'{var_name}[' in check_line or f'len({var_name})' in check_line:
+                    if f'print({var_name})' in check_line or f'{var_name}[' in check_line or f'len({var_name})' in check_line or f'if {var_name} ==' in check_line or f'{var_name} = {var_name}.lower()' in check_line or f'{var_name} = {var_name}.upper()' in check_line:
                         is_string_used = True
                         break
                 
@@ -124,13 +453,13 @@ class Transpiler:
                         # Need to reallocate as string - adjust var_count
                         self.var_cells[var_name] = (old_entry[0], 'str')
                         self.string_vars[var_name] = ''
-                        var_count += 10  # Extra 10 cells for string chars
+                        var_count += self.runtime_string_capacity
                 else:
                     # New variable
                     if is_string_used:
                         self.var_cells[var_name] = (var_count, 'str')
                         self.string_vars[var_name] = ''
-                        var_count += 1 + 10  # length + 10 chars
+                        var_count += 1 + self.runtime_string_capacity
                     else:
                         self.var_cells[var_name] = (var_count, 'num')
                         var_count += 1
@@ -145,7 +474,7 @@ class Transpiler:
                     if old_entry[1] == 'num':
                         self.var_cells[src] = (old_entry[0], 'str')
                         self.string_vars[src] = ''
-                        var_count += 10  # Extra cells for string
+                        var_count += self.runtime_string_capacity
                 continue
             
             match = re.match(r'(\w+)\s*=\s*(\w+)\[(\d+)\]', line)
@@ -156,7 +485,41 @@ class Transpiler:
                     if old_entry[1] == 'num':
                         self.var_cells[src] = (old_entry[0], 'str')
                         self.string_vars[src] = ''
-                        var_count += 10
+                        var_count += self.runtime_string_capacity
+                continue
+
+            # s = s.lower() / s = s.upper() imply string typing
+            match = re.match(r'(\w+)\s*=\s*(\w+)\.(lower|upper)\(\)$', line)
+            if match:
+                dest = match.group(1)
+                src = match.group(2)
+                for name in (dest, src):
+                    if name in self.var_cells:
+                        old_entry = self.var_cells[name]
+                        if old_entry[1] == 'num':
+                            self.var_cells[name] = (old_entry[0], 'str')
+                            self.string_vars[name] = ''
+                            var_count += self.runtime_string_capacity
+                    else:
+                        self.var_cells[name] = (var_count, 'str')
+                        self.string_vars[name] = ''
+                        var_count += 1 + self.runtime_string_capacity
+                continue
+
+            # if s == "literal": implies string typing for runtime variables
+            match = re.match(r'if\s+(\w+)\s*==\s*"[^"]*":', line)
+            if match:
+                var_name = match.group(1)
+                if var_name in self.var_cells:
+                    old_entry = self.var_cells[var_name]
+                    if old_entry[1] == 'num':
+                        self.var_cells[var_name] = (old_entry[0], 'str')
+                        self.string_vars[var_name] = ''
+                        var_count += self.runtime_string_capacity
+                else:
+                    self.var_cells[var_name] = (var_count, 'str')
+                    self.string_vars[var_name] = ''
+                    var_count += 1 + self.runtime_string_capacity
                 continue
             
             # n = len(s) - string length
@@ -180,6 +543,7 @@ class Transpiler:
                 continue
         
         self.var_count = var_count
+        self.scratch_used = 0
         
         # Reserve cells: 0=temp, then variables
         bf.append('[-]')  # cell 0 = temp
@@ -252,6 +616,9 @@ class Transpiler:
             if match:
                 var = match.group(1)
                 cell = self.get_cell(var) + 1  # absolute cell position
+                scratch = self._reserve_scratch(2)
+                temp_cell = scratch
+                run_cell = scratch + 1
                 if_indent = len(orig_line) - len(orig_line.lstrip())
                 
                 # Collect body lines (preserve indentation)
@@ -269,42 +636,74 @@ class Transpiler:
                     body_lines.append(bl)
                     i += 1
                 
-                # Navigate from base_cell to var cell
-                nav = cell - base_cell
-                if nav > 0:
-                    bf.append('>' * nav)
-                elif nav < 0:
-                    bf.append('<' * (-nav))
+                current = base_cell
+
+                # Clear scratch cells.
+                for scratch_cell in (temp_cell, run_cell):
+                    bf.append(self._move_abs(current, scratch_cell))
+                    bf.append('[-]')
+                    current = scratch_cell
+
+                # Copy condition into temp and run cells, preserving the original value.
+                bf.append(self._move_abs(current, cell))
+                current = cell
                 bf.append('[')
-                
-                # Recursively process body
-                bf.extend(self._transpile_block(body_lines, base_cell=cell))
-                
-                # Clear variable to ensure single execution
+                bf.append('-')
+                bf.append(self._move_abs(current, temp_cell))
+                bf.append('+')
+                current = temp_cell
+                bf.append(self._move_abs(current, run_cell))
+                bf.append('+')
+                current = run_cell
+                bf.append(self._move_abs(current, cell))
+                current = cell
+                bf.append(']')
+
+                # Restore the original condition value.
+                bf.append(self._move_abs(current, temp_cell))
+                current = temp_cell
+                bf.append('[')
+                bf.append('-')
+                bf.append(self._move_abs(current, cell))
+                bf.append('+')
+                current = cell
+                bf.append(self._move_abs(current, temp_cell))
+                current = temp_cell
+                bf.append(']')
+
+                # Execute body once when run_cell is non-zero.
+                bf.append(self._move_abs(current, run_cell))
+                current = run_cell
+                bf.append('[')
+                bf.extend(self._transpile_block(body_lines, base_cell=run_cell))
                 bf.append('[-]')
                 bf.append(']')
-                # Navigate back to base_cell
-                if nav > 0:
-                    bf.append('<' * nav)
-                elif nav < 0:
-                    bf.append('>' * (-nav))
+
+                bf.append(self._move_abs(run_cell, base_cell))
                 continue
             
             # --- Skip unsupported patterns (consume body, emit nothing) ---
             
             # if s == "literal":
-            match = re.match(r'if\s+\w+\s*==\s*"[^"]*":', line)
+            match = re.match(r'if\s+(\w+)\s*==\s*"([^"]*)":', line)
             if match:
+                var_name = match.group(1)
+                literal = match.group(2)
                 skip_indent = len(orig_line) - len(orig_line.lstrip())
                 i += 1
+                body_lines = []
                 while i < len(lines):
                     bl = lines[i]
                     if not bl.strip():
+                        body_lines.append(bl)
                         i += 1
                         continue
                     if len(bl) - len(bl.lstrip()) <= skip_indent:
                         break
+                    body_lines.append(bl)
                     i += 1
+                if self.get_type(var_name) == 'str':
+                    bf.extend(self._emit_runtime_string_eq(var_name, literal, body_lines, base_cell))
                 continue
             
             # while s == "literal":
@@ -414,26 +813,14 @@ class Transpiler:
                         bf.append('.')  # print char
                         bf.append('>')  # advance
                     bf.append('<' * (cell + 12))  # return to cell 0
+                bf.extend(self._emit_print_newline(base_cell))
                 return bf
         
         # print("text") - navigate to temp cell (0) first
         match = re.match(r'print\("([^"]*)"\)', line)
         if match:
-            text = match.group(1)
-            cell = 0 - base_cell
-            if cell >= 0:
-                bf.append('>' * cell)
-            else:
-                bf.append('<' * (-cell))
-            for char in text:
-                bf.append('[-]')
-                bf.append('+' * ord(char))
-                bf.append('.')
-            if cell >= 0:
-                bf.append('<' * cell)
-            else:
-                bf.append('>' * (-cell))
-            return bf
+            text = match.group(1) + '\n'
+            return self._emit_temp_text(text, base_cell)
         
         # print(chr(65)) - ALWAYS use temp cell (cell 0), go from current pos
         match = re.match(r'print\(chr\((\d+)\)\)', line)
@@ -449,6 +836,7 @@ class Transpiler:
             bf.append('+' * val)
             bf.append('.')
             bf.append('[-]')
+            bf.extend(self._emit_print_newline(base_cell))
             # Navigate back
             if cell >= 0:
                 bf.append('<' * cell)
@@ -469,6 +857,7 @@ class Transpiler:
             bf.append('+' * add_val)
             bf.append('.')
             bf.append('-' * add_val)
+            bf.extend(self._emit_print_newline(base_cell=base_cell))
             if cell >= 0:
                 bf.append('<' * cell)
             else:
@@ -488,6 +877,7 @@ class Transpiler:
             bf.append('+' * add_val)
             bf.append('.')
             bf.append('-' * add_val)
+            bf.extend(self._emit_print_newline(base_cell=base_cell))
             if cell >= 0:
                 bf.append('<' * cell)
             else:
@@ -504,6 +894,7 @@ class Transpiler:
             else:
                 bf.append('<' * (-cell))
             bf.append('.')
+            bf.extend(self._emit_print_newline(base_cell=base_cell))
             if cell >= 0:
                 bf.append('<' * cell)
             else:
@@ -551,19 +942,48 @@ class Transpiler:
             dest = match.group(1)
             src = match.group(2)
             if src != dest:  # Only if different variables
-                dest_cell = self.get_cell(dest) + 1 - base_cell
-                src_cell = self.get_cell(src) + 1 - base_cell
-                # Go to dest, clear it
-                if dest_cell >= 0:
-                    bf.append('>' * dest_cell)
-                else:
-                    bf.append('<' * (-dest_cell))
+                dest_abs = self.get_cell(dest) + 1
+                src_abs = self.get_cell(src) + 1
+
+                # Return to temp cell 0 for a stable copy routine.
+                if base_cell > 0:
+                    bf.append('<' * base_cell)
+                elif base_cell < 0:
+                    bf.append('>' * (-base_cell))
+
                 bf.append('[-]')
-                # Copy from src: go to src, copy to dest
-                bf.append('<' * (dest_cell - src_cell) if dest_cell > src_cell else '>' * (src_cell - dest_cell))
-                bf.append('[->+<]')
-                # Go back to dest
-                bf.append('>' if dest_cell > 0 else '<' * dest_cell)
+
+                # Clear destination.
+                bf.append('>' * dest_abs)
+                bf.append('[-]')
+                bf.append('<' * dest_abs)
+
+                # Move src into temp while mirroring into dest.
+                bf.append('>' * src_abs)
+                bf.append('[')
+                bf.append('-')
+                bf.append('<' * src_abs)
+                bf.append('+')
+                bf.append('>' * dest_abs)
+                bf.append('+')
+                bf.append('<' * dest_abs)
+                bf.append('>' * src_abs)
+                bf.append(']')
+
+                # Restore src from temp.
+                bf.append('<' * src_abs)
+                bf.append('[')
+                bf.append('-')
+                bf.append('>' * src_abs)
+                bf.append('+')
+                bf.append('<' * src_abs)
+                bf.append(']')
+
+                # Return to original base cell.
+                if base_cell > 0:
+                    bf.append('>' * base_cell)
+                elif base_cell < 0:
+                    bf.append('<' * (-base_cell))
             return bf
         
         # x = x - 1
@@ -636,38 +1056,22 @@ class Transpiler:
         if match:
             var = match.group(1)
             prompt = match.group(2)
-            # Print prompt using cell 0 (temp) to avoid clobbering base_cell
-            if base_cell > 0:
-                bf.append('<' * base_cell)
-            elif base_cell < 0:
-                bf.append('>' * (-base_cell))
-            for char in prompt:
-                bf.append('[-]')
-                bf.append('+' * ord(char))
-                bf.append('.')
-            if base_cell > 0:
-                bf.append('>' * base_cell)
-            elif base_cell < 0:
-                bf.append('<' * (-base_cell))
-            # Then do input
             if self.get_type(var) == 'str':
-                cell = self.get_cell(var)
+                return self._emit_string_input(var, prompt, base_cell)
+            else:
+                # Print prompt using cell 0 (temp) to avoid clobbering base_cell
                 if base_cell > 0:
                     bf.append('<' * base_cell)
                 elif base_cell < 0:
                     bf.append('>' * (-base_cell))
-                bf.append('>' * (cell + 2))
-                bf.append('[-]')
-                for i in range(10):
-                    bf.append(',')
-                    bf.append('>')
-                bf.append('<' * 10)
-                bf.append('<' * 1)
-                bf.append('<' * 1)
-                bf.append('+' * 10)
-                bf.append('<' * (cell + 1))
-                return bf
-            else:
+                for char in prompt:
+                    bf.append('[-]')
+                    bf.append('+' * ord(char))
+                    bf.append('.')
+                if base_cell > 0:
+                    bf.append('>' * base_cell)
+                elif base_cell < 0:
+                    bf.append('<' * (-base_cell))
                 cell = self.get_cell(var) + 1 - base_cell
                 if cell >= 0:
                     bf.append('>' * cell)
@@ -685,22 +1089,7 @@ class Transpiler:
         if match:
             var = match.group(1)
             if self.get_type(var) == 'str':
-                cell = self.get_cell(var)
-                if base_cell > 0:
-                    bf.append('<' * base_cell)
-                elif base_cell < 0:
-                    bf.append('>' * (-base_cell))
-                bf.append('>' * (cell + 2))
-                bf.append('[-]')
-                for i in range(10):
-                    bf.append(',')
-                    bf.append('>')
-                bf.append('<' * 10)
-                bf.append('<' * 1)
-                bf.append('<' * 1)
-                bf.append('+' * 10)
-                bf.append('<' * (cell + 1))
-                return bf
+                return self._emit_string_input(var, '', base_cell)
             else:
                 cell = self.get_cell(var) + 1 - base_cell
                 if cell >= 0:
@@ -753,26 +1142,29 @@ class Transpiler:
             dest = match.group(1)
             src = match.group(2)
             if self.get_type(src) == 'str':
-                cell = self.get_cell(src)
-                str_content = self.string_vars.get(src, "")
-                str_len = len(str_content)
-                
-                # Navigate to first char
-                bf.append('>' * (cell + 2))
-                
-                # For each character: if uppercase (65-90), add 32
-                for i in range(str_len):
-                    # At char[i], add 32 if it's uppercase
-                    char_ord = ord(str_content[i])
-                    if 65 <= char_ord <= 90:  # uppercase
-                        bf.append('+' * 32)  # add 32 to convert to lowercase
-                    # else: leave unchanged (digit, punctuation, or lowercase)
-                    if i < str_len - 1:
-                        bf.append('>')  # move to next char
-                
-                # Return to cell 0
-                bf.append('<' * (cell + str_len + 1))
-                return bf
+                if src in self.string_vars and self.string_vars.get(src, ''):
+                    cell = self.get_cell(src)
+                    str_content = self.string_vars.get(src, "")
+                    str_len = len(str_content)
+                    
+                    # Navigate to first char
+                    bf.append('>' * (cell + 2))
+                    
+                    # For each character: if uppercase (65-90), add 32
+                    for i in range(str_len):
+                        # At char[i], add 32 if it's uppercase
+                        char_ord = ord(str_content[i])
+                        if 65 <= char_ord <= 90:  # uppercase
+                            bf.append('+' * 32)  # add 32 to convert to lowercase
+                        # else: leave unchanged (digit, punctuation, or lowercase)
+                        if i < str_len - 1:
+                            bf.append('>')  # move to next char
+                    
+                    # Return to cell 0
+                    bf.append('<' * (cell + str_len + 1))
+                    return bf
+
+                return self._emit_runtime_string_case_transform(src, to_lower=True, base_cell=base_cell)
         
         # s = s.upper() - convert string to uppercase in place
         match = re.match(r'(\w+)\s*=\s*(\w+)\.upper\(\)$', line)
@@ -780,23 +1172,26 @@ class Transpiler:
             dest = match.group(1)
             src = match.group(2)
             if self.get_type(src) == 'str':
-                cell = self.get_cell(src)
-                str_content = self.string_vars.get(src, "")
-                str_len = len(str_content)
-                
-                # Navigate to first char
-                bf.append('>' * (cell + 2))
-                
-                # For each character: if lowercase (97-122), subtract 32
-                for i in range(str_len):
-                    char_ord = ord(str_content[i])
-                    if 97 <= char_ord <= 122:  # lowercase
-                        bf.append('-' * 32)  # subtract 32 to convert to uppercase
-                    if i < str_len - 1:
-                        bf.append('>')
-                
-                bf.append('<' * (cell + str_len + 1))
-                return bf
+                if src in self.string_vars and self.string_vars.get(src, ''):
+                    cell = self.get_cell(src)
+                    str_content = self.string_vars.get(src, "")
+                    str_len = len(str_content)
+                    
+                    # Navigate to first char
+                    bf.append('>' * (cell + 2))
+                    
+                    # For each character: if lowercase (97-122), subtract 32
+                    for i in range(str_len):
+                        char_ord = ord(str_content[i])
+                        if 97 <= char_ord <= 122:  # lowercase
+                            bf.append('-' * 32)  # subtract 32 to convert to uppercase
+                        if i < str_len - 1:
+                            bf.append('>')
+                    
+                    bf.append('<' * (cell + str_len + 1))
+                    return bf
+
+                return self._emit_runtime_string_case_transform(src, to_lower=False, base_cell=base_cell)
         
         return bf
 

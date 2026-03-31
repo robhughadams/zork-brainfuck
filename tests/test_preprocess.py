@@ -163,8 +163,8 @@ def test_end_to_end_preprocess_transpile():
             text=True
         )
         
-        # Should print 'A' three times
-        assert result.stdout == "AAA", f"Expected 'AAA', got '{result.stdout}'"
+        # Should print 'A' three times (BF print now matches Python with newlines).
+        assert result.stdout.replace('\n', '') == "AAA", f"Expected 'AAA', got '{result.stdout}'"
     finally:
         os.unlink(pre_path)
         if 'bf_path' in locals():

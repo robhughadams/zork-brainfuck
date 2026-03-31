@@ -20,4 +20,4 @@ def run_bf(bf_code, input_data='', timeout=120):
                                input=input_data,
                                capture_output=True, text=True, timeout=timeout)
         os.unlink(f.name)
-        return result.stdout
+        return result.stdout.replace('\n', '')

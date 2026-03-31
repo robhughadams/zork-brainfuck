@@ -269,10 +269,12 @@ def preprocess_source(source, max_passes=10):
                 if len(branches) == 1 and else_body is None:
                     literal, body = branches[0]
                     result_lines.append(f'{indent}# LOWERED_RUNTIME_STRING_EQ')
+                    result_lines.append(f'{indent}{var_name} = {var_name}.lower()')
                     result_lines.append(f'{indent}if {var_name} == "{literal}":')
                     result_lines.extend(body)
                 else:
                     result_lines.append(f'{indent}# LOWERED_STRING_CHAIN')
+                    result_lines.append(f'{indent}{var_name} = {var_name}.lower()')
                     result_lines.append(f'{indent}{handled_name} = 1')
                     for literal, body in branches:
                         result_lines.append(f'{indent}# LOWERED_RUNTIME_STRING_EQ')
@@ -595,7 +597,9 @@ def preprocess_source(source, max_passes=10):
             # Handle exit() -> running = 0
             if 'exit()' in line:
                 modified = True
+                indent = line[:len(line) - len(line.lstrip())]
                 result_lines.append(line.replace('exit()', 'running = 0'))
+                result_lines.append(f'{indent}_run = 0')
                 i += 1
                 continue
             

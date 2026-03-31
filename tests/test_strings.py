@@ -266,6 +266,39 @@ class TestStringEquality:
         output = run_bf(bf)
         assert output == "Y", f"Expected 'Y', got '{output}'"
 
+    def test_runtime_eq_input_match(self):
+        """Runtime string equality should match input strings"""
+        bf = transpile('s = input("Prompt: ")\nif s == "go":\n    print("Y")')
+        output = run_bf(bf, 'go')
+        assert output == 'Prompt: Y', f"Expected 'Prompt: Y', got '{output}'"
+
+    def test_runtime_eq_input_no_match(self):
+        """Runtime string equality should skip body on mismatch"""
+        bf = transpile('s = input("Prompt: ")\nif s == "go":\n    print("Y")')
+        output = run_bf(bf, 'no')
+        assert output == 'Prompt: ', f"Expected 'Prompt: ', got '{output}'"
+
+    def test_runtime_eq_input_after_lower(self):
+        """Runtime lower() should feed equality checks"""
+        bf = transpile('s = input("Prompt: ")\ns = s.lower()\nif s == "go":\n    print("Y")')
+        output = run_bf(bf, 'GO')
+        assert output == 'Prompt: Y', f"Expected 'Prompt: Y', got '{output}'"
+
+    def test_runtime_eq_multiple_checks_same_input(self):
+        """Repeated runtime equality checks should not clobber the string"""
+        bf = transpile(
+            's = input("Prompt: ")\n'
+            's = s.lower()\n'
+            'if s == "take mailbox":\n'
+            '    print("T")\n'
+            'if s == "open mailbox":\n'
+            '    print("O")\n'
+            'if s == "go southwest":\n'
+            '    print("S")'
+        )
+        output = run_bf(bf, 'GO SOUTHWEST')
+        assert output == 'Prompt: S', f"Expected 'Prompt: S', got '{output}'"
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
