@@ -1,3 +1,9 @@
 [submodule "vendor/zork-py"]
 	path = vendor/zork-py
 	url = https://github.com/iamjawa/zork-py.git
+[submodule "external/funkicrab"]
+	path = external/funkicrab
+	url = https://github.com/zesterer/funkicrab.git
+[submodule "external/bfelfx64"]
+	path = external/bfelfx64
+	url = https://github.com/gaidardzhiev/bfelfx64.git

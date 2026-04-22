@@ -81,6 +81,7 @@ def preprocess_source(source, max_passes=10):
 
     chain_counter = 0
     compare_counter = 0
+    eq_chain_counter = 0
     
     for pass_num in range(max_passes):
         lines = source.split('\n')
@@ -431,64 +432,110 @@ def preprocess_source(source, max_passes=10):
                 i += 1
                 continue
             
-            # Match: if x == n: -> simple: preserve body but use simple condition
-            # For now, just add a comment and preserve the nested body structure.
+            # Match numeric equality chains and lower them to explicit equality
+            # flags plus `if flag > 0:` blocks, which the transpiler supports.
             match = re.match(r'(\s*)if\s+(\w+)\s*==\s*(\d+):', line)
             if match:
                 modified = True
                 indent = match.group(1)
-                if_indent = len(indent)
-                
-                # Add comment about the condition
-                result_lines.append(f'{indent}# if x == n: (simplified)')
-                
-                # Drop exactly one indent level from the guarded body so the
-                # statements stay inside the surrounding block without keeping
-                # the removed `if x == n:` indentation level.
-                i += 1
-                while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
-                        result_lines.append(body_line)
-                        i += 1
+                indent_len = len(indent)
+                chain_id = eq_chain_counter
+                eq_chain_counter += 1
+                handled_name = f'_c_handled_eq_{chain_id}'
+
+                branches = []
+                else_body = None
+                chain_i = i
+
+                while chain_i < len(lines):
+                    branch_line = lines[chain_i]
+                    branch_match = re.match(r'(\s*)(if|elif)\s+(\w+)\s*==\s*(\d+):', branch_line)
+                    if branch_match and len(branch_match.group(1)) == indent_len:
+                        chain_i += 1
+                        body = []
+                        while chain_i < len(lines):
+                            body_line = lines[chain_i]
+                            if not body_line.strip():
+                                body.append(body_line)
+                                chain_i += 1
+                                continue
+                            line_indent = len(body_line) - len(body_line.lstrip())
+                            if line_indent <= indent_len:
+                                break
+                            body.append(body_line)
+                            chain_i += 1
+                        branches.append((branch_match.group(3), branch_match.group(4), body))
                         continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if line_indent <= if_indent:
-                        break
-                    result_lines.append(body_line[4:])
-                    i += 1
-                continue
-            
-            # Match: elif x == n: - check _cond from previous
-            match = re.match(r'(\s*)elif\s+(\w+)\s*==\s*(\d+):', line)
-            if match:
-                modified = True
-                indent = match.group(1)
-                var_name = match.group(2)
-                val = match.group(3)
-                
-                temp_name = f'_c_{var_name}'
-                
-                # Check if previous conditions failed (_c_prev == 0 means failed)
-                # For now, just add this condition similarly to if
-                result_lines.append(f'{indent}{temp_name} = {val}')
-                result_lines.append(f'{indent}{temp_name} = {temp_name} - {var_name}')
-                result_lines.append(f'{indent}while {temp_name} > 0:')
-                i += 1
-                while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
-                        result_lines.append(body_line)
-                        i += 1
-                        continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if line_indent <= len(indent):
-                        break
-                    result_lines.append(body_line)
-                    i += 1
-                
-                result_lines.append(indent + '    ' + f'{temp_name} = {temp_name} - 1')
-                i += 1
+
+                    else_match = re.match(r'(\s*)else\s*:', branch_line)
+                    if else_match and len(else_match.group(1)) == indent_len:
+                        chain_i += 1
+                        else_body = []
+                        while chain_i < len(lines):
+                            body_line = lines[chain_i]
+                            if not body_line.strip():
+                                else_body.append(body_line)
+                                chain_i += 1
+                                continue
+                            line_indent = len(body_line) - len(body_line.lstrip())
+                            if line_indent <= indent_len:
+                                break
+                            else_body.append(body_line)
+                            chain_i += 1
+                    break
+
+                result_lines.append(f'{indent}{handled_name} = 1')
+
+                for branch_index, (var_name, val, body) in enumerate(branches):
+                    match_name = f'_c_eq_match_{chain_id}_{branch_index}'
+                    temp_name = f'_c_eq_cmp_{chain_id}_{branch_index}'
+                    temp_name_rev = f'_c_eq_cmp_rev_{chain_id}_{branch_index}'
+
+                    body_indent = None
+                    for body_line in body:
+                        if body_line.strip():
+                            body_indent = len(body_line) - len(body_line.lstrip())
+                            break
+
+                    result_lines.append(f'{indent}{match_name} = 1')
+                    result_lines.append(f'{indent}{temp_name} = {var_name}')
+                    result_lines.append(f'{indent}{temp_name} = {temp_name} - {val}')
+                    result_lines.append(f'{indent}if {temp_name} > 0:')
+                    result_lines.append(f'{indent}    {match_name} = 0')
+                    result_lines.append(f'{indent}{temp_name_rev} = {val}')
+                    result_lines.append(f'{indent}{temp_name_rev} = {temp_name_rev} - {var_name}')
+                    result_lines.append(f'{indent}if {temp_name_rev} > 0:')
+                    result_lines.append(f'{indent}    {match_name} = 0')
+                    result_lines.append(f'{indent}if {handled_name} > 0:')
+                    result_lines.append(f'{indent}    if {match_name} > 0:')
+                    result_lines.append(f'{indent}        {handled_name} = 0')
+                    for body_line in body:
+                        if not body_line.strip():
+                            result_lines.append(body_line)
+                            continue
+                        if body_indent is None:
+                            result_lines.append(body_line)
+                            continue
+                        result_lines.append(f'{indent}        {body_line[body_indent:]}')
+
+                if else_body is not None:
+                    else_indent = None
+                    for body_line in else_body:
+                        if body_line.strip():
+                            else_indent = len(body_line) - len(body_line.lstrip())
+                            break
+
+                    result_lines.append(f'{indent}if {handled_name} > 0:')
+                    for body_line in else_body:
+                        if not body_line.strip():
+                            result_lines.append(body_line)
+                            continue
+                        if else_indent is None:
+                            result_lines.append(body_line)
+                            continue
+                        result_lines.append(f'{indent}    {body_line[else_indent:]}')
+
+                i = chain_i
                 continue
 
             # Match: elif with method call like s.lower() == "literal":
@@ -535,24 +582,12 @@ def preprocess_source(source, max_passes=10):
                 i += 1
                 continue
             
-            # Match: else: - add else body (original behavior)
+            # Preserve generic else blocks. Flattening the body here breaks
+            # semantics by making the branch unconditional in the lowered Python.
             match = re.match(r'(\s*)else:', line)
             if match:
-                modified = True
-                indent = match.group(1)
-                # Add else body
+                result_lines.append(line)
                 i += 1
-                while i < len(lines):
-                    body_line = lines[i]
-                    if not body_line.strip():
-                        result_lines.append(body_line)
-                        i += 1
-                        continue
-                    line_indent = len(body_line) - len(body_line.lstrip())
-                    if line_indent <= len(indent):
-                        break
-                    result_lines.append(body_line)
-                    i += 1
                 continue
             
             # Match: while x == n: -> convert to while with flag

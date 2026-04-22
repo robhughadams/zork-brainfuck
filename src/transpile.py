@@ -792,27 +792,30 @@ class Transpiler:
                 cell = self.get_cell(var_name)
                 str_content = self.string_vars.get(var_name, "")
                 str_len = len(str_content)
+                current = base_cell
                 
                 # If we have a literal string, use it directly
                 if str_len > 0:
-                    # Layout: cell0=temp, cell1=length, cell2=char[0], cell3=char[1], ...
-                    bf.append('>' * (cell + 1))  # cell 1 = length
-                    bf.append('>')  # cell 2 = first char
+                    target = cell + 2
+                    bf.append(self._move_abs(current, target))
+                    current = target
                     
                     # Simple loop: repeat str_len times
                     for _ in range(str_len):
                         bf.append('.')  # print char
-                        bf.append('>')  # advance to next char
+                        bf.append('>')
+                        current += 1
                     
-                    # Return to cell 0
-                    bf.append('<' * (cell + str_len + 2))
+                    bf.append(self._move_abs(current, base_cell))
                 else:
-                    # For runtime strings (like input), just print max 10 chars
-                    bf.append('>' * (cell + 2))  # Go to first char
+                    target = cell + 2
+                    bf.append(self._move_abs(current, target))
+                    current = target
                     for _ in range(10):
-                        bf.append('.')  # print char
-                        bf.append('>')  # advance
-                    bf.append('<' * (cell + 12))  # return to cell 0
+                        bf.append('.')
+                        bf.append('>')
+                        current += 1
+                    bf.append(self._move_abs(current, base_cell))
                 bf.extend(self._emit_print_newline(base_cell))
                 return bf
         
